@@ -1,0 +1,1 @@
+Sube TODOS los archivos de esta carpeta directamente a la raíz de tu repositorio GitHub. No subas el ZIP. No copies tokens o archivos .env.
