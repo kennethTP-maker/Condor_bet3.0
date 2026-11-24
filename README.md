@@ -47,3 +47,36 @@ El menú `/condor` muestra categorías y **tipos de mercados posibles** para tod
 **Importante:** este catálogo es la taxonomía de la interfaz, no una afirmación de que ESPN o The Odds API ofrecen todos esos mercados. La primera versión solo consulta mercados principales (`h2h,totals`) para los deportes configurados; los mercados de jugadores, sets, períodos y las alertas cuantitativas requieren proveedores contratados, implementación y validación adicionales. Los escaneos automáticos del starter avisan de partidos, *no* de oportunidades de apuesta de valor positivo.
 
 Para una instalación totalmente nueva en Discord, crea una tercera aplicación independiente llamada `Condor Bet 3.0`, conserva los bots originales y coloca su token únicamente en el secret `DISCORD_BOT_TOKEN` del nuevo despliegue. No copies ninguna base de datos ni token de producción.
+
+## 🏀🎮 Analista eBasketball (`/ebasket`)
+
+Analista estadístico para eBasketball (H2H GG League, Battle, etc.). **Aprende solo de los resultados que tú registras o importas**, sin depender de APIs de pago, y valida su propio rendimiento antes de mostrar señales.
+
+| Comando | Qué hace |
+|---|---|
+| `/ebasket registrar` | Guarda un resultado final (liquida automáticamente los picks abiertos de ese cruce) |
+| `/ebasket importar` | Importa historial CSV: `fecha,liga,local,visitante,pts_local,pts_visitante` (`,` o `;`). Ver `ejemplo_ebasket.csv` |
+| `/ebasket deshacer` | Borra el último resultado registrado |
+| `/ebasket analizar` | Pre-partido: marcador proyectado, total ± σ, margen, prob. de victoria (puntos + Elo), líneas justas, forma L10, H2H. Si das líneas/cuotas: prob. modelo vs mercado sin vig, **EV**, **Kelly fraccional** y veredicto, con botón para registrar el pick |
+| `/ebasket envivo` | En vivo: con marcador y minutos restantes mezcla el ritmo observado con el pre-partido y reevalúa totales, hándicap y ML |
+| `/ebasket jugador` | Perfil: Elo, ataque/defensa, L5/L10, rachas, últimos partidos |
+| `/ebasket ranking` | Ranking Elo por liga |
+| `/ebasket backtest` | Validación walk-forward: acierto, Brier vs referencia, log-loss, MAE de totales, calibración |
+| `/ebasket balance` | Seguimiento de picks: G-P-N, unidades, ROI real vs EV esperado |
+
+**Modelo**: Elo con multiplicador por margen + ratings de ataque/defensa aprendidos online (encogidos hacia la media de liga con pocas muestras, ponderados hacia la forma reciente) + nivel de anotación, ventaja local y varianza residual de la liga (EWMA). Probabilidades por aproximación normal, con pushes en líneas enteras. Cada liga/formato se modela por separado (4x5 y 4x6 minutos no son comparables).
+
+**Veredictos**: 🟢 VALOR (EV ≥ umbral), 🟡 MARGINAL, ⚪ PASS, 🟠 REVISAR (el modelo discrepa >20 pp del mercado: probablemente falta información), ⚫ SIN DATOS (muestra insuficiente). Ejecuta `/ebasket backtest` antes de confiar en cualquier señal; si el diagnóstico dice que no supera la referencia, no apuestes por ella.
+
+Variables opcionales:
+
+```
+EBASKET_DEFAULT_LEAGUE=H2H GG League 4x5
+EBASKET_MIN_GAMES=12          # partidos mínimos por jugador para emitir señales
+EBASKET_MIN_EV=0.04           # EV mínimo para VALOR
+EBASKET_KELLY_FRACTION=0.25   # fracción de Kelly (stake máx 5% del bank)
+EBASKET_GAME_MINUTES=20       # duración del partido para /ebasket envivo
+EBASKET_BANKROLL_UNITS=100    # bank en unidades para calcular stakes
+```
+
+Tests: `python -m unittest discover -s tests`.

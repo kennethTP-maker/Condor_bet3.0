@@ -12,6 +12,7 @@ from config import load_settings
 from providers import SportsClient, DataError
 from engine import odds_candidates
 from state import State
+import ebasket_bot
 
 load_dotenv()
 settings=load_settings()
@@ -22,6 +23,7 @@ intents=discord.Intents.default()
 bot=commands.Bot(command_prefix='!', intents=intents)
 client=SportsClient()
 state=State()
+ebasket_store=ebasket_bot.setup(bot,state.db)
 
 class Home(discord.ui.View):
     def __init__(self):
@@ -62,6 +64,7 @@ async def condor(interaction:discord.Interaction):
     em.add_field(name='📆 /partidos',value='Partidos de hoy y mañana',inline=False)
     em.add_field(name='💰 /cuotas',value='Mercados disponibles (sin predicción no hay EV)',inline=False)
     em.add_field(name='🔔 /alertas',value='Estado de alertas programadas',inline=False)
+    em.add_field(name='🏀🎮 /ebasket',value='Analista eBasketball: `analizar`, `envivo`, `jugador`, `ranking`, `backtest`, `balance`, `registrar`, `importar`',inline=False)
     await interaction.response.send_message(embed=em,view=Home(),ephemeral=True)
 
 SPORT_CHOICES=[app_commands.Choice(name=s['label'],value=k) for k,s in SPORTS.items()]

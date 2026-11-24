@@ -1,9 +1,11 @@
 """Local persistence of alert fingerprints and provider usage, no production DB access."""
+import os
 import sqlite3
 from datetime import datetime, timezone
 
 class State:
     def __init__(self, path='data/condor3.sqlite3'):
+        os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
         self.db=sqlite3.connect(path)
         self.db.execute('CREATE TABLE IF NOT EXISTS alerts (fingerprint TEXT PRIMARY KEY, sent_at TEXT NOT NULL)')
         self.db.execute('CREATE TABLE IF NOT EXISTS calls (day TEXT PRIMARY KEY, count INTEGER NOT NULL)')
