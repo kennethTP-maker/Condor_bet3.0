@@ -100,3 +100,13 @@ Kalshi lista partidos de eBasketball (serie `KXEBASKETBALLGAME`, **Valhalla Leag
 Apuestas simuladas comprando al ask + comisión: **ROI entre −4 % y −8 %** para todos los umbrales de edge (t ≈ −0.6 a −2.2). Referencias: siempre favorito −7.2 %, siempre underdog −5.2 %. Un modelo "anclado al mercado" (corrige el precio por jugador) dio ROI +1 % a +15 % con t < 1.3 en pocas apuestas: indistinguible del ruido.
 
 **Conclusión: con datos públicos (solo ganador) el modelo no supera al precio de Kalshi.** El spread (~5¢) más la comisión cuestan ~5 % por operación. El bot muestra esta advertencia en `/ebasket kalshi`. Para buscar ventaja harían falta datos que el mercado no incorpore rápido (marcadores por cuarto, en vivo, alineaciones/equipo asignado antes de que se fije el precio) y repetir el backtest.
+
+## 🗂️ drafted.gg (fuente oficial de Kalshi)
+
+`drafted.py` lee los resultados de la Valhalla League en drafted.gg (robots.txt lo permite): ID del partido, hora, jugador y equipo NBA de local/visitante, **marcador final y por cuartos**. Coincide al 100 % con los ganadores de Kalshi (278/278 emparejados).
+
+**Limitación:** drafted solo publica ~**3 días** de historial. Por eso el bot sincroniza automáticamente (`DRAFTED_SYNC=true`, cada `DRAFTED_SYNC_MINUTES=60`) y guarda cada partido en la base local; `/ebasket drafted` fuerza la sincronización y muestra cuánto historial hay. Los partidos quedan disponibles para `/ebasket analizar`, `envivo`, `jugador`, `ranking` y `backtest` con `liga: Valhalla League`. **Mantén el bot encendido con volumen persistente** o se pierde historial.
+
+`python drafted_backtest.py --db data/condor3.sqlite3` cruza el modelo de puntos con los precios de Kalshi (`kalshi_backtest.py` debe haberse ejecutado antes para el caché de precios).
+
+Backtest preliminar (21–24 nov, 116 partidos de test, **muestra demasiado pequeña para concluir**): log-loss modelo 0.624 vs mercado 0.598; ROI simulado negativo. Repetir con ≥3–4 semanas acumuladas.

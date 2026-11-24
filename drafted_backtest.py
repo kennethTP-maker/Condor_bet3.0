@@ -74,7 +74,7 @@ def walk(dmatches, kpairs, **params):
 GRID = {'prior_games': [4.0, 8.0, 16.0], 'min_lr': [0.02, 0.04, 0.08], 'elo_weight': [0.0, 0.35, 0.7]}
 
 
-def run(dmatches, kgames, edges=(0.0, 0.02, 0.04, 0.06, 0.08, 0.10)):
+def run(dmatches, kgames, edges=(0.0, 0.02, 0.04, 0.06, 0.08, 0.10), min_train=200, min_games=12):
     kgames = sorted([g for g in kgames if kalshi.mid_prob(g) is not None], key=lambda g: g.start)
     pairs = join(dmatches, kgames)
     pairs.sort(key=lambda x: x[0].start)
@@ -87,14 +87,18 @@ def run(dmatches, kgames, edges=(0.0, 0.02, 0.04, 0.06, 0.08, 0.10)):
 
     best = None
     for pg, lr, ew in itertools.product(GRID['prior_games'], GRID['min_lr'], GRID['elo_weight']):
-        params = dict(prior_games=pg, min_lr=lr, elo_weight=ew, min_games=12)
+        params = dict(prior_games=pg, min_lr=lr, elo_weight=ew, min_games=min_games)
         preds, _ = walk(dmatches, pairs, **params)
         rows = [(p, g.winner == 'A') for g, p, r, _ in preds if r and g.start < split_time]
-        if len(rows) < 200:
+        if len(rows) < min_train:
             continue
         ll = logloss(rows)
         if best is None or ll < best[0]:
             best = (ll, params)
+    if best is None:
+        print(f'⚠️ Datos insuficientes: hacen falta ≥{min_train} partidos de TRAIN con jugadores de ≥{min_games} partidos. '
+              'Deja al bot acumulando resultados de drafted.gg (historial público ≈ 3 días).')
+        return None, None
     params = best[1]
     print(f'TRAIN hasta {split_time.isoformat()[:16]} · parámetros elegidos: {params}')
 
@@ -132,6 +136,14 @@ def run(dmatches, kgames, edges=(0.0, 0.02, 0.04, 0.06, 0.08, 0.10)):
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--crawl', action='store_true')
+    ap.add_argument('--min-train', type=int, default=200)
+    ap.add_argument('--min-games', type=int, default=12)
+    ap.add_argument('--db', help='Leer el historial acumulado por el bot (p. ej. data/condor3.sqlite3)')
     args = ap.parse_args()
-    dm = refresh_drafted() if args.crawl or not os.path.exists(DRAFTED_CACHE) else drafted.load(DRAFTED_CACHE)
-    run(dm, load_games())
+    if args.db:
+        import sqlite3
+        from drafted_sync import DraftedStore
+        dm = DraftedStore(sqlite3.connect(args.db)).all()
+    else:
+        dm = refresh_drafted() if args.crawl or not os.path.exists(DRAFTED_CACHE) else drafted.load(DRAFTED_CACHE)
+    run(dm, load_games(), min_train=args.min_train, min_games=args.min_games)
