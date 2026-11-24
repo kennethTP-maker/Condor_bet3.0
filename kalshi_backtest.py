@@ -39,9 +39,36 @@ def load_games(refresh=False):
         return out
     markets = kalshi.fetch_markets('settled')
     games = [g for g in kalshi.games_from_markets(markets) if g.winner]
-    kalshi.pregame_quotes(games)
+    for g in games:
+        g.ask_a = g.bid_a = g.ask_b = g.bid_b = None
     os.makedirs('data', exist_ok=True)
-    json.dump([dataclasses.asdict(g) | {'start': g.start.isoformat()} for g in games], open(CACHE, 'w'))
+    # Resume quotes from a previous partial run.
+    partial = CACHE + '.partial'
+    done = set()
+    if os.path.exists(partial):
+        old = {r['event_ticker']: r for r in json.load(open(partial))}
+        for g in games:
+            r = old.get(g.event_ticker)
+            if r:
+                g.ask_a, g.bid_a, g.ask_b, g.bid_b = r['ask_a'], r['bid_a'], r['ask_b'], r['bid_b']
+                done.add(g.event_ticker)
+
+    def save(path):
+        json.dump([dataclasses.asdict(g) | {'start': g.start.isoformat()} for g in games], open(path, 'w'))
+
+    def progress(i, total):
+        if i % 100 == 0 or i == total:
+            print(f'  precios pre-partido: {i}/{total} franjas horarias', flush=True)
+            save(partial)
+
+    failed = kalshi.pregame_quotes(games, done=done, on_progress=progress)
+    if failed:
+        print(f'  aviso: {failed} partidos sin precio por errores de la API (vuelve a ejecutar --refresh para reintentar)')
+        save(partial)
+    else:
+        if os.path.exists(partial):
+            os.remove(partial)
+    save(CACHE)
     return games
 
 

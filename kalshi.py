@@ -144,21 +144,32 @@ def fetch_markets(status: str, series: str = SERIES, min_close_ts: int | None = 
             return out
 
 
-def pregame_quotes(games, minutes_before: int = 2, batch: int = 40, sleep: float = 0.12):
+def pregame_quotes(games, minutes_before: int = 2, batch: int = 40, sleep: float = 0.12,
+                   done: set | None = None, on_progress=None):
     """Fill ask/bid with the last 1-minute candle ending ``minutes_before`` the scheduled start.
 
-    Uses the batch candlesticks endpoint, grouping games that share a start time.
+    Uses the batch candlesticks endpoint, grouping games that share a start time. Batches
+    that keep failing are skipped (their games stay without quotes) instead of aborting.
+    ``done`` holds event tickers already quoted (resume); ``on_progress(i, total)`` is
+    called after each start-time group.
     """
     groups: dict[int, list] = {}
     for g in games:
+        if done and g.event_ticker in done:
+            continue
         groups.setdefault(int(g.start.timestamp()), []).append(g)
-    for start_ts, gs in groups.items():
+    failed = 0
+    for idx, (start_ts, gs) in enumerate(groups.items(), 1):
         cutoff = start_ts - 60 * minutes_before
         for i in range(0, len(gs), batch):
             chunk = gs[i:i + batch]
             tickers = [t for g in chunk for t in (g.ticker_a, g.ticker_b)]
-            d = _get('/markets/candlesticks', market_tickers=','.join(tickers),
-                     start_ts=cutoff - 3600, end_ts=cutoff, period_interval=1)
+            try:
+                d = _get('/markets/candlesticks', market_tickers=','.join(tickers),
+                         start_ts=cutoff - 3600, end_ts=cutoff, period_interval=1)
+            except Exception:
+                failed += len(chunk)
+                continue
             quotes = {}
             for m in d.get('markets', []):
                 cs = [c for c in m.get('candlesticks', []) if c['end_period_ts'] <= cutoff]
@@ -171,8 +182,12 @@ def pregame_quotes(games, minutes_before: int = 2, batch: int = 40, sleep: float
                 qa, qb = quotes.get(g.ticker_a), quotes.get(g.ticker_b)
                 g.ask_a, g.bid_a = _valid(qa)
                 g.ask_b, g.bid_b = _valid(qb)
+                if done is not None:
+                    done.add(g.event_ticker)
             time.sleep(sleep)
-    return games
+        if on_progress:
+            on_progress(idx, len(groups))
+    return failed
 
 
 def _valid(q):
