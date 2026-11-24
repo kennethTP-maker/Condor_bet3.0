@@ -80,3 +80,23 @@ EBASKET_BANKROLL_UNITS=100    # bank en unidades para calcular stakes
 ```
 
 Tests: `python -m unittest discover -s tests`.
+
+## 📈 Kalshi eBasketball + backtest real
+
+Kalshi lista partidos de eBasketball (serie `KXEBASKETBALLGAME`, **Valhalla League**, liquidados por drafted.gg). Solo se usan endpoints públicos (sin clave, sin órdenes). Kalshi publica el ganador, no el marcador, así que se usa un modelo de victoria propio (`winmodel.py`: rating del jugador + rating del equipo 2K + sesgo del primer listado).
+
+- `/ebasket kalshi [horas]`: próximos partidos con prob. del modelo, prob. del mercado y edge = prob − ask − comisión (0.07·P·(1−P)).
+- `/ebasket kalshi_ranking`: ranking de jugadores Valhalla.
+- `python kalshi_backtest.py [--refresh]`: descarga todo el historial liquidado y el precio 2 min antes de cada partido (reanudable), ajusta parámetros solo en la 1.ª mitad y evalúa fuera de muestra en la 2.ª.
+
+### Resultado del backtest (7 oct – 24 nov 2026, 4.329 partidos, 2.103 de test)
+
+| | Modelo | Mercado Kalshi |
+|---|---|---|
+| Log-loss (menor = mejor) | 0.6653 | **0.6541** |
+| Brier | 0.2366 | **0.2319** |
+| Acierto ganador | 58.6 % | **59.6 %** |
+
+Apuestas simuladas comprando al ask + comisión: **ROI entre −4 % y −8 %** para todos los umbrales de edge (t ≈ −0.6 a −2.2). Referencias: siempre favorito −7.2 %, siempre underdog −5.2 %. Un modelo "anclado al mercado" (corrige el precio por jugador) dio ROI +1 % a +15 % con t < 1.3 en pocas apuestas: indistinguible del ruido.
+
+**Conclusión: con datos públicos (solo ganador) el modelo no supera al precio de Kalshi.** El spread (~5¢) más la comisión cuestan ~5 % por operación. El bot muestra esta advertencia en `/ebasket kalshi`. Para buscar ventaja harían falta datos que el mercado no incorpore rápido (marcadores por cuarto, en vivo, alineaciones/equipo asignado antes de que se fije el precio) y repetir el backtest.

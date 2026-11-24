@@ -64,9 +64,9 @@ async def fetch_markets_async(session, status, min_close_ts=None):
 
 
 def _params():
-    return WinParams(k_player=float(os.getenv('KALSHI_K_PLAYER', '0.045')),
-                     k_team=float(os.getenv('KALSHI_K_TEAM', '0.02')),
-                     floor=float(os.getenv('KALSHI_FLOOR', '0.35')),
+    return WinParams(k_player=float(os.getenv('KALSHI_K_PLAYER', '0.10')),
+                     k_team=float(os.getenv('KALSHI_K_TEAM', '0.0')),
+                     floor=float(os.getenv('KALSHI_FLOOR', '0.2')),
                      min_games=int(os.getenv('KALSHI_MIN_GAMES', '15')))
 
 
@@ -121,7 +121,9 @@ def setup(group: app_commands.Group, db):
             mkt_s = f' · mercado {mkt:.0%}' if mkt is not None else ''
             lines.append(f"**{g.start.astimezone(kalshi.ET):%H:%M} ET** {g.label}\n"
                          f"  modelo {g.player_a} {p:.0%}{mkt_s} → {tag}")
-        em = discord.Embed(title='🏀🎮 Kalshi · eBasketball (Valhalla League)', description='\n'.join(lines)[:4000], color=COLOR)
+        warning = ('⚠️ **Backtest (oct–nov 2026, 2.103 partidos fuera de muestra): el modelo NO supera al precio de '
+                   'Kalshi** (log-loss 0.665 vs 0.654; ROI simulado −4 % a −8 %). Usa esto como contexto, no como señal.\n\n')
+        em = discord.Embed(title='🏀🎮 Kalshi · eBasketball (Valhalla League)', description=(warning + '\n'.join(lines))[:4000], color=COLOR)
         em.set_footer(text=f'Modelo: {model.n} partidos liquidados · edge = prob − ask − comisión · '
                            'Backtest: python kalshi_backtest.py. Solo informativo, no envía órdenes.')
         await interaction.followup.send(embed=em, ephemeral=True)
