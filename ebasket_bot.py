@@ -10,6 +10,7 @@ from discord import app_commands
 from ebasket import (EBasketModel, Match, backtest, evaluate_markets, fair_odds, live_projection,
                      parse_csv, parse_date)
 from ebasket_store import EBasketStore
+import kalshi_bot
 
 COLOR = 0xE8590C
 VERDICT_ICON = {'VALOR': '🟢', 'MARGINAL': '🟡', 'PASS': '⚪', 'REVISAR': '🟠', 'SIN DATOS': '⚫'}
@@ -265,6 +266,7 @@ def setup(bot: discord.ext.commands.Bot, db):
         em.set_footer(text='Los picks se liquidan automáticamente al registrar el resultado del cruce.')
         await interaction.response.send_message(embed=em, ephemeral=True)
 
+    kalshi_bot.setup(group, db)
     bot.tree.add_command(group)
     return store
 
