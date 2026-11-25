@@ -282,7 +282,7 @@ function candCard(s, rank) {
     ${avatar(s)}
     <span style="min-width:0"><div class="nm"><span class="rank">${rank}</span>${esc(s.name)}</div>
       <div class="sub">${teamBadge(s.team)} ${POS[s.pos] || s.pos} · ${s.p} P en ${s.gp}</div>
-      <div class="sub" style="margin-top:3px">${chip(s.form)}</div></span>
+      <div class="sub" style="margin-top:3px">${chip(s.form)}${missedGames(s) ? ` <span class="miss-dot" title="Su equipo jugó ${missedGames(s)} partido(s) sin él">⚠ ${missedGames(s)} PJ fuera</span>` : ""}</div></span>
     <span class="score"><b class="num">${Math.round(s.power)}</b><small>Fuerza</small></span></button>`;
 }
 function trendRow(s) {
@@ -310,8 +310,37 @@ function projFor(s, opp) {
   return { pGoal: scaleP(s.proj.pGoal), pPoint: scaleP(s.proj.pPoint), g: s.proj.g * r, p: s.proj.p * r, sog: s.proj.sog, oppF: f };
 }
 function bestFor(team, opp, key, n) {
-  return activeSk().filter((s) => s.team === team && s.gp >= 5 && s.log.length && daysSince(s.log[s.log.length - 1][0]) <= 12)
+  return activeSk().filter((s) => s.team === team && s.gp >= 5 && s.log.length && daysSince(s.log[s.log.length - 1][0]) <= 12 && missedGames(s) < 2)
     .map((s) => ({ s, ...projFor(s, opp) })).sort((a, b) => b[key] - a[key]).slice(0, n);
+}
+/* enlaces a NHL.com */
+function gameUrl(team, opp, home, iso, gid) {
+  if (!gid) return null;
+  const sched = D.schedule.find((g) => g.id === gid);
+  if (sched && sched.link) return sched.link;
+  const [aw, hm] = home ? [opp, team] : [team, opp];
+  return `https://www.nhl.com/gamecenter/${aw.toLowerCase()}-vs-${hm.toLowerCase()}/${iso.replace(/-/g, "/")}/${gid}`;
+}
+function nextUrl(team) {
+  const t = TEAM[team];
+  if (!t || !t.next) return null;
+  return gameUrl(team, t.next.opp, t.next.home, t.next.date, t.next.id);
+}
+function nhlLink(url, label = "Ver en NHL.com") {
+  return url ? `<a class="nhl-link" href="${esc(url)}" target="_blank" rel="noopener">${label} <span aria-hidden="true">↗</span></a>` : "";
+}
+/* partidos que su equipo jugó después de su último partido (posible lesión/baja) */
+function missedGames(p) {
+  const t = TEAM[p.team];
+  if (!t || !p.log.length) return 0;
+  const last = p.log[p.log.length - 1][0];
+  return t.games.filter((g) => g[0] > last).length;
+}
+function missedBadge(p) {
+  const n = missedGames(p);
+  if (!n) return "";
+  const last = p.log[p.log.length - 1][0];
+  return `<span class="chip f-miss" title="Su equipo jugó ${n} partido${n > 1 ? "s" : ""} sin él desde el ${dShort(last)}. Comprueba lesiones o alineación antes de apostar."><span class="ic" aria-hidden="true">⚠</span>No juega desde ${dShort(last)} (${n} PJ)</span>`;
 }
 function daysSince(iso) { return (new Date(D.generatedAt) - new Date(iso + "T12:00:00Z")) / 864e5; }
 
@@ -383,7 +412,7 @@ function drawPlayers() {
   $("#pg-prev").disabled = state.page === 0;
   $("#pg-next").disabled = state.page >= pages - 1;
   $("#pl-tbl tbody").innerHTML = slice.length ? slice.map((s) => `<tr data-p="${s.id}">
-    <td class="l"><span class="pl">${avatar(s, "sm")}<b>${esc(s.name)}</b>${s.active ? "" : ' <span class="dim">(no activo)</span>'}</span></td>
+    <td class="l"><span class="pl">${avatar(s, "sm")}<b>${esc(s.name)}</b>${s.active ? "" : ' <span class="dim">(no activo)</span>'}${missedGames(s) ? ` <span class="miss-dot" title="Su equipo jugó ${missedGames(s)} partido(s) sin él">⚠ ${missedGames(s)}</span>` : ""}</span></td>
     <td class="l">${teamBadge(s.team)}</td><td class="l">${POS[s.pos] || s.pos}</td>
     <td>${s.gp}</td><td>${s.g}</td><td>${s.a}</td><td><b>${s.p}</b></td><td>${f2(s.ptsPg)}</td><td>${s.sog}</td><td>${pct(s.shPct)}</td>
     <td>${mmss(s.toi)}</td><td class="${s.pm > 0 ? "pos" : s.pm < 0 ? "neg" : ""}">${s.pm > 0 ? "+" : ""}${s.pm}</td><td>${s.ppp}</td><td>${s.hit}</td><td>${s.blk}</td>
@@ -497,7 +526,7 @@ function gameCard(g) {
   return `<article class="game"><div class="game-h">${teamBadge(g.away, true)}<span class="vs">@</span>${teamBadge(g.home, true)}
     <span class="time">${live ? `<b class="num">${g.awayScore ?? 0} – ${g.homeScore ?? 0}</b><br>${g.state === "OFF" || g.state === "FINAL" ? "Final" : "En juego"}` : `<b>${tLocal(g.start)}</b><br>${esc(g.venue || "")}`}</span></div>
     <div class="game-cols">${col(g.away, g.home)}${col(g.home, g.away)}</div>
-    <a class="vs-link" href="#vsportero" data-vsgame="${g.id}">Ver duelos jugador vs portero →</a></article>`;
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center"><a class="vs-link" href="#vsportero" data-vsgame="${g.id}">Ver duelos jugador vs portero →</a>${nhlLink(g.link || gameUrl(g.away, g.home, false, g.date, g.id), "Partido en NHL.com")}</div></article>`;
 }
 function chipMini(f) { const x = FORM[f] || FORM.flat; return `<span style="color:var(${x.v})" title="${x.label}">${x.icon}</span>`; }
 
@@ -539,6 +568,8 @@ function viewMethod(app) {
       <li>La probabilidad final de gol usa el modelo base del jugador sin ajuste de rival × factor portero × factor duelo (entre 0,7 y 1,45). Para puntos el portero pesa la mitad (raíz cuadrada del factor).</li>
       <li><b>Confianza</b>: baja con menos de 8 tiros contra ese portero, media de 8 a 24, alta con 25 o más.</li>
     </ul>
+    <h3>Aviso de ausencia ⚠</h3>
+    <p>Si el equipo de un jugador ya jugó partidos después del último partido de ese jugador, se marca con ⚠ y el número de partidos que se perdió. Suele indicar lesión, enfermedad o que no fue alineado. Con 2 o más partidos de ausencia, el jugador no aparece en las listas de candidatos de la semana.</p>
     <h3>Probabilidades P(gol) y P(punto)</h3>
     <p>Para el siguiente partido: tasa de tiros (50% temporada, 30% últimos 10, 20% últimos 5) × % de tiro contraído hacia la media de liga (${pct(D.league.shPct)}) con 80 tiros de peso, ajustado por los goles que recibe el rival (±20% máx.) y por el cambio reciente de minutos. La probabilidad final mezcla 50% modelo de Poisson y 50% frecuencia real de partidos en los que el jugador marcó o sumó punto.</p>
     <p><b>Importante:</b> son estimaciones estadísticas para ordenar candidatos, no garantías. No tienen en cuenta lesiones del día, alineaciones confirmadas ni cuotas. Valídalas siempre antes de apostar.</p>
@@ -584,7 +615,7 @@ function openPlayer(id) {
   openModal(`
     <div class="sheet-h">${avatar(s, "lg")}
       <div><h2 id="sheet-title">${esc(s.name)}</h2>
-        <div class="facts">${teamBadge(s.team, true)} <span>#${s.num ?? "–"}</span><span>${POS[s.pos] || s.pos}</span><span>${s.age ? s.age + " años" : ""}</span><span>${s.shoots ? "Tira " + (s.shoots === "L" ? "izq." : "der.") : ""}</span>${chip(s.form)}</div></div>
+        <div class="facts">${teamBadge(s.team, true)} <span>#${s.num ?? "–"}</span>${nhlLink(`https://www.nhl.com/player/${s.id}`, "Perfil NHL.com")}<span>${POS[s.pos] || s.pos}</span><span>${s.age ? s.age + " años" : ""}</span><span>${s.shoots ? "Tira " + (s.shoots === "L" ? "izq." : "der.") : ""}</span>${chip(s.form)}${missedBadge(s)}</div></div>
       <button class="close" type="button" aria-label="Cerrar">×</button></div>
 
     <div class="statline">
@@ -599,7 +630,7 @@ function openPlayer(id) {
       ${statCell("TOI L5", mmss(s.toi5), s.toi5 - s.toi)}${statCell("Racha punto", s.pStreak)}${statCell("Sin punto", s.dryStreak)}
     </div>
 
-    <section class="panel"><div class="panel-h"><h3>Próximo partido</h3><span class="sub">${nx ? `${nx.home ? "vs" : "@"} ${esc(TEAM[nx.opp]?.name || nx.opp)} · ${nx.start ? new Date(nx.start).toLocaleString("es", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }) : dLong(nx.date)}` : "Sin partido programado esta semana"}</span></div>
+    <section class="panel"><div class="panel-h"><h3>Próximo partido</h3><span class="sub">${nx ? `${nx.home ? "vs" : "@"} ${esc(TEAM[nx.opp]?.name || nx.opp)} · ${nx.start ? new Date(nx.start).toLocaleString("es", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }) : dLong(nx.date)}` : "Sin partido programado esta semana"}</span><span class="right">${nhlLink(nextUrl(s.team), "Ver partido en NHL.com")}</span></div>
       <div class="panel-b"><div class="proj">
         <div><span class="ring" style="--p:${Math.round(pj.pGoal * 100)}"><span>${pct(pj.pGoal)}</span></span><small>P(marcar gol)</small><b class="num">${pct(pj.pGoal)}</b></div>
         <div><span class="ring" style="--p:${Math.round(pj.pPoint * 100)}"><span>${pct(pj.pPoint)}</span></span><small>P(1+ punto)</small><b class="num">${pct(pj.pPoint)}</b></div>
@@ -623,9 +654,9 @@ function openPlayer(id) {
     </div>
 
     <section class="panel"><div class="panel-h"><h3>Últimos 10 partidos</h3></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:640px">
-      <thead><tr><th class="l">Fecha</th><th class="l">Rival</th><th>G</th><th>A</th><th>P</th><th>Tiros</th><th>TOI</th><th>+/-</th><th>Golpes</th><th>Bloq</th><th>PPP</th><th>IMP</th></tr></thead>
+      <thead><tr><th class="l">Fecha</th><th class="l">Rival</th><th>G</th><th>A</th><th>P</th><th>Tiros</th><th>TOI</th><th>+/-</th><th>Golpes</th><th>Bloq</th><th>PPP</th><th>IMP</th><th class="l">Partido</th></tr></thead>
       <tbody>${recent.map((r) => `<tr style="cursor:default"><td class="l">${dShort(r[0])}</td><td class="l">${r[2] ? "vs" : "@"} ${esc(r[1])}</td><td>${r[3]}</td><td>${r[4]}</td><td><b>${r[5]}</b></td><td>${r[6]}</td><td>${mmss(r[7])}</td>
-        <td class="${r[8] > 0 ? "pos" : r[8] < 0 ? "neg" : ""}">${r[8] > 0 ? "+" : ""}${r[8]}</td><td>${r[9]}</td><td>${r[10]}</td><td>${r[11]}</td><td class="${r[12] >= s.imp ? "pos" : "neg"}">${f2(r[12])}</td></tr>`).join("")}</tbody></table></div></div></section>
+        <td class="${r[8] > 0 ? "pos" : r[8] < 0 ? "neg" : ""}">${r[8] > 0 ? "+" : ""}${r[8]}</td><td>${r[9]}</td><td>${r[10]}</td><td>${r[11]}</td><td class="${r[12] >= s.imp ? "pos" : "neg"}">${f2(r[12])}</td><td class="l">${nhlLink(gameUrl(s.team, r[1], r[2], r[0], r[13]), "NHL.com")}</td></tr>`).join("")}</tbody></table></div></div></section>
   `, () => {
     candleChart($("#m-candle"), s.candles, { bucket: modalCharts, yLabel: "Precio" });
     whenH2H(() => { const el = $("#m-vs"); if (el && el.isConnected) { el.outerHTML = playerVsBlock(s); bindOpeners($("#sheet")); } });
@@ -655,7 +686,7 @@ function openGoalie(id) {
   const L = g.log;
   openModal(`
     <div class="sheet-h">${avatar(g, "lg")}
-      <div><h2 id="sheet-title">${esc(g.name)}</h2><div class="facts">${teamBadge(g.team, true)} <span>#${g.num ?? "–"}</span><span>Portero</span><span>${g.age ? g.age + " años" : ""}</span>${chip(g.form)}</div></div>
+      <div><h2 id="sheet-title">${esc(g.name)}</h2><div class="facts">${teamBadge(g.team, true)} <span>#${g.num ?? "–"}</span><span>Portero</span><span>${g.age ? g.age + " años" : ""}</span>${chip(g.form)}${missedBadge(g)}${nhlLink(`https://www.nhl.com/player/${g.id}`, "Perfil NHL.com")}${nextUrl(g.team) ? nhlLink(nextUrl(g.team), "Próximo partido") : ""}</div></div>
       <button class="close" type="button" aria-label="Cerrar">×</button></div>
     <div class="statline">${statCell("PJ", g.gp)}${statCell("Titular", g.gs)}${statCell("V-D-DP", `${g.w}-${g.l}-${g.otl}`)}${statCell("SV%", f3(g.svPct))}${statCell("GAA", f2(g.gaa))}
       ${statCell("SO", g.so)}${statCell("GSAA", sgn(g.gsaa, 1))}${statCell("SV% L5", f3(g.svPct5))}${statCell("GSAA L5", sgn(g.gsaa5, 1))}${statCell("Fuerza", g.power != null ? Math.round(g.power) : "–")}${statCell("Tendencia", (g.trend > 0 ? "+" : "") + g.trend)}</div>
@@ -665,8 +696,8 @@ function openGoalie(id) {
       <section class="panel"><div class="panel-h"><h3>GSAA por partido</h3></div><div class="panel-b"><div class="chart-box short"><canvas id="m-gsaa"></canvas></div></div></section>
     </div>
     <section class="panel"><div class="panel-h"><h3>Últimos 10 partidos</h3></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:560px">
-      <thead><tr><th class="l">Fecha</th><th class="l">Rival</th><th>Dec.</th><th>Tiros</th><th>Paradas</th><th>GC</th><th>SV%</th><th>TOI</th><th>GSAA</th></tr></thead>
-      <tbody>${L.slice(-10).reverse().map((r) => `<tr style="cursor:default"><td class="l">${dShort(r[0])}</td><td class="l">${r[2] ? "vs" : "@"} ${esc(r[1])}</td><td>${r[8]}</td><td>${r[3]}</td><td>${r[4]}</td><td>${r[5]}</td><td>${f3(r[6])}</td><td>${mmss(r[7])}</td><td class="${r[9] >= 0 ? "pos" : "neg"}">${sgn(r[9])}</td></tr>`).join("")}</tbody></table></div></div></section>
+      <thead><tr><th class="l">Fecha</th><th class="l">Rival</th><th>Dec.</th><th>Tiros</th><th>Paradas</th><th>GC</th><th>SV%</th><th>TOI</th><th>GSAA</th><th class="l">Partido</th></tr></thead>
+      <tbody>${L.slice(-10).reverse().map((r) => `<tr style="cursor:default"><td class="l">${dShort(r[0])}</td><td class="l">${r[2] ? "vs" : "@"} ${esc(r[1])}</td><td>${r[8]}</td><td>${r[3]}</td><td>${r[4]}</td><td>${r[5]}</td><td>${f3(r[6])}</td><td>${mmss(r[7])}</td><td class="${r[9] >= 0 ? "pos" : "neg"}">${sgn(r[9])}</td><td class="l">${nhlLink(gameUrl(g.team, r[1], r[2], r[0], r[10]), "NHL.com")}</td></tr>`).join("")}</tbody></table></div></div></section>
   `, () => {
     candleChart($("#m-candle"), g.candles, { bucket: modalCharts, yLabel: "GSAA acumulado" });
     const labels = L.map((r) => dShort(r[0]));
@@ -686,7 +717,7 @@ function openTeam(ab) {
   const gls = activeGo().filter((g) => g.team === ab);
   openModal(`
     <div class="sheet-h"><span class="av lg">${t.logo ? `<img src="${esc(t.logo)}" alt="" onerror="this.remove()" style="object-fit:contain;padding:8px">` : ""}${esc(ab)}</span>
-      <div><h2 id="sheet-title">${esc(t.name)}</h2><div class="facts"><span>${esc(t.div)} · ${t.divRank}º división · ${t.leagueRank}º liga</span><span>Racha ${esc(t.streak)}</span></div></div>
+      <div><h2 id="sheet-title">${esc(t.name)}</h2><div class="facts"><span>${esc(t.div)} · ${t.divRank}º división · ${t.leagueRank}º liga</span><span>Racha ${esc(t.streak)}</span>${nhlLink(nextUrl(ab), "Próximo partido en NHL.com")}</div></div>
       <button class="close" type="button" aria-label="Cerrar">×</button></div>
     <div class="statline">${statCell("PJ", t.gp)}${statCell("V-D-DP", `${t.w}-${t.l}-${t.otl}`)}${statCell("Puntos", t.pts)}${statCell("P%", f3(t.ptsPct))}${statCell("GF/PJ", f2(t.gfpg))}${statCell("GC/PJ", f2(t.gapg))}
       ${statCell("Casa", t.home)}${statCell("Fuera", t.road)}${statCell("L10", `${t.l10.w}-${t.l10.l}-${t.l10.otl}`)}</div>
@@ -796,7 +827,7 @@ function viewVs(app) {
   games.forEach((g) => [[g.away, g.home], [g.home, g.away]].forEach(([team, opp]) => {
     const gk = lastStarter(opp);
     if (!gk) return;
-    activeSk().filter((s) => s.team === team && s.gp >= 5 && s.log.length && daysSince(s.log[s.log.length - 1][0]) <= 12)
+    activeSk().filter((s) => s.team === team && s.gp >= 5 && s.log.length && daysSince(s.log[s.log.length - 1][0]) <= 12 && missedGames(s) < 2)
       .forEach((s) => { const m = matchup(s, gk.id); if (m.sog >= 8) best.push({ ...m, game: g, goalie: gk }); });
   }));
   // un jugador puede jugar varias veces en la semana: se queda su mejor duelo
@@ -822,6 +853,7 @@ function viewVs(app) {
         <div class="filters">
           <label class="fld">Partido<select id="vs-game">${games.map((g) => `<option value="${g.id}" ${g.id === vs.game ? "selected" : ""}>${dShort(g.date)} · ${g.away} @ ${g.home}${g.start ? " · " + tLocal(g.start) : ""}</option>`).join("")}</select></label>
           <label class="fld">Mín. tiros vs portero <input type="number" id="vs-min" min="0" value="${vs.minShots}" style="width:80px"></label>
+          ${game ? `<span style="padding-bottom:8px">${nhlLink(game.link || gameUrl(game.away, game.home, false, game.date, game.id), "Partido en NHL.com")}</span>` : ""}
         </div>
         ${game ? `<div class="grid">${sidePanel(game.away, game.home, "gA")}${sidePanel(game.home, game.away, "gH")}</div>` : `<div class="empty">No hay partidos esta semana.</div>`}
       </div></section>
@@ -884,7 +916,7 @@ function vsTable(team, gk) {
       <th class="l">Jugador</th><th class="l">Forma</th><th title="Partidos contra este portero">PJ vs</th><th>Tiros</th><th>G</th><th>A</th><th>P</th><th title="% de tiro contra él / % de tiro general">%Tiro vs</th>
       <th title="Goles esperados con esos tiros">G esp.</th><th title="Factor del historial cara a cara para gol">Duelo</th><th>P(gol)</th><th>P(punto)</th><th class="l">Confianza</th></tr></thead>
       <tbody>${rows.length ? rows.map((m) => `<tr data-p="${m.s.id}">
-        <td class="l"><span class="pl">${avatar(m.s, "sm")}<b>${esc(m.s.name)}</b> <span class="dim">${POS[m.s.pos] || m.s.pos}</span></span></td><td class="l">${chip(m.s.form)}</td>
+        <td class="l"><span class="pl">${avatar(m.s, "sm")}<b>${esc(m.s.name)}</b> <span class="dim">${POS[m.s.pos] || m.s.pos}</span>${missedGames(m.s) ? ` <span class="miss-dot" title="Su equipo jugó ${missedGames(m.s)} partido(s) sin él">⚠ ${missedGames(m.s)}</span>` : ""}</span></td><td class="l">${chip(m.s.form)}</td>
         <td>${m.gp}</td><td>${m.sog}</td><td><b>${m.g}</b></td><td>${m.a}</td><td>${m.p}</td>
         <td>${m.shVs != null ? pct(m.shVs) : "–"} <span class="dim">/ ${pct(m.shp)}</span></td><td>${f1(m.xg)}</td><td>${factorCell(m.pairG)}</td>
         <td class="pct">${pct(m.pGoal)} <small>${deltaPct(m.pGoal, m.pGoalBase)}</small></td><td class="pct">${pct(m.pPoint)} <small>${deltaPct(m.pPoint, m.pPointBase)}</small></td>

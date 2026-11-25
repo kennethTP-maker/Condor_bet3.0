@@ -285,7 +285,8 @@ def main():
             a, h = g["awayTeam"]["abbrev"], g["homeTeam"]["abbrev"]
             item = dict(id=g["id"], date=day["date"], start=g.get("startTimeUTC"), state=g.get("gameState"),
                         away=a, home=h, venue=g.get("venue", {}).get("default"),
-                        awayScore=g["awayTeam"].get("score"), homeScore=g["homeTeam"].get("score"))
+                        awayScore=g["awayTeam"].get("score"), homeScore=g["homeTeam"].get("score"),
+                        link=("https://www.nhl.com" + g["gameCenterLink"]) if g.get("gameCenterLink") else None)
             upcoming.append(item)
             for me, opp, home in ((a, h, False), (h, a, True)):
                 if me in teams and teams[me]["next"] is None and g.get("gameState") in ("FUT", "PRE"):
@@ -312,7 +313,7 @@ def main():
             continue
         res = "W" if r.get("wins") else "OTL" if r.get("otLosses") else "L"
         teams[ab]["games"].append([r["gameDate"], r["opponentTeamAbbrev"], r["goalsFor"], r["goalsAgainst"], res,
-                                   1 if r.get("homeRoad") == "H" else 0, r.get("shotsForPerGame"), r.get("shotsAgainstPerGame")])
+                                   1 if r.get("homeRoad") == "H" else 0, r.get("shotsForPerGame"), r.get("shotsAgainstPerGame"), r["gameId"]])
     for t in teams.values():
         pts_delta = [(2 if g[4] == "W" else 1 if g[4] == "OTL" else 0) - 1 for g in t["games"]]
         t["candles"] = weekly_candles([g[0] for g in t["games"]], pts_delta, 0.0)
@@ -403,7 +404,7 @@ def main():
             pStreak=ps, dryStreak=dry, gStreak=gstreak, form=form, trend=tscore, proj=proj,
             candles=weekly_candles([g["date"] for g in gs], candle_deltas),
             # log compacto: fecha, rival, local, G, A, P, SOG, TOI, +/-, HIT, BLK, PPP, IMP
-            log=[[g["date"], g["opp"], 1 if g["home"] else 0, g["g"], g["a"], g["p"], g["sog"], r2(g["toi"], 1), g["pm"], g["hit"], g["blk"], g["ppp"], r2(g["imp"], 2)] for g in gs],
+            log=[[g["date"], g["opp"], 1 if g["home"] else 0, g["g"], g["a"], g["p"], g["sog"], r2(g["toi"], 1), g["pm"], g["hit"], g["blk"], g["ppp"], r2(g["imp"], 2), g["gid"]] for g in gs],
         ))
 
     # Fuerza (0-100): percentiles de IMP temporada contraído, IMP L10 y TOI
@@ -454,7 +455,7 @@ def main():
             # fecha, rival, local, SA, SV, GA, SV%, TOI(min), decisión, GSAA
             log=[[r["gameDate"], r["opponentTeamAbbrev"], 1 if r.get("homeRoad") == "H" else 0, r.get("shotsAgainst") or 0,
                   r.get("saves") or 0, r.get("goalsAgainst") or 0, r2(r.get("savePct") or 0, 3), r2((r.get("timeOnIce") or 0) / 60, 1),
-                  "W" if r.get("wins") else "OTL" if r.get("otLosses") else "L" if r.get("losses") else "-", r2(g, 2)]
+                  "W" if r.get("wins") else "OTL" if r.get("otLosses") else "L" if r.get("losses") else "-", r2(g, 2), r["gameId"]]
                  for r, g in zip(gs, gsaa_g)],
         ))
     gel = [g for g in goalies if g["gp"] >= 3]
