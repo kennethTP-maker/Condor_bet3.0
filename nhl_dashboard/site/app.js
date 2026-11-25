@@ -393,7 +393,7 @@ function viewPlayers(app) {
   });
   $("#pg-prev").addEventListener("click", () => { state.page--; drawPlayers(); });
   $("#pg-next").addEventListener("click", () => { state.page++; drawPlayers(); });
-  $("#pl-tbl tbody").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-p]"); if (tr) openPlayer(+tr.dataset.p); });
+  $("#pl-tbl tbody").addEventListener("click", (e) => { if (e.target.closest("a")) return; const tr = e.target.closest("tr[data-p]"); if (tr) openPlayer(+tr.dataset.p); });
   drawPlayers();
 }
 function drawPlayers() {
@@ -412,7 +412,7 @@ function drawPlayers() {
   $("#pg-prev").disabled = state.page === 0;
   $("#pg-next").disabled = state.page >= pages - 1;
   $("#pl-tbl tbody").innerHTML = slice.length ? slice.map((s) => `<tr data-p="${s.id}">
-    <td class="l"><span class="pl">${avatar(s, "sm")}<b>${esc(s.name)}</b>${s.active ? "" : ' <span class="dim">(no activo)</span>'}${missedGames(s) ? ` <span class="miss-dot" title="Su equipo jugó ${missedGames(s)} partido(s) sin él">⚠ ${missedGames(s)}</span>` : ""}</span></td>
+    <td class="l"><span class="pl">${avatar(s, "sm")}<b>${esc(s.name)}</b>${kLink(s.team)}${s.active ? "" : ' <span class="dim">(no activo)</span>'}${missedGames(s) ? ` <span class="miss-dot" title="Su equipo jugó ${missedGames(s)} partido(s) sin él">⚠ ${missedGames(s)}</span>` : ""}</span></td>
     <td class="l">${teamBadge(s.team)}</td><td class="l">${POS[s.pos] || s.pos}</td>
     <td>${s.gp}</td><td>${s.g}</td><td>${s.a}</td><td><b>${s.p}</b></td><td>${f2(s.ptsPg)}</td><td>${s.sog}</td><td>${pct(s.shPct)}</td>
     <td>${mmss(s.toi)}</td><td class="${s.pm > 0 ? "pos" : s.pm < 0 ? "neg" : ""}">${s.pm > 0 ? "+" : ""}${s.pm}</td><td>${s.ppp}</td><td>${s.hit}</td><td>${s.blk}</td>
@@ -440,7 +440,7 @@ function viewGoalies(app) {
     const k = state.gsort, dir = state.gdir;
     rows.sort((a, b) => { let x = k === "form" ? FORM_ORDER[a.form] : a[k], y = k === "form" ? FORM_ORDER[b.form] : b[k]; if (x == null) return 1; if (y == null) return -1; return (typeof x === "string" ? x.localeCompare(y) : x - y) * dir; });
     $("#g-tbl tbody").innerHTML = rows.map((g) => `<tr data-g="${g.id}">
-      <td class="l"><span class="pl">${avatar(g, "sm")}<b>${esc(g.name)}</b></span></td><td class="l">${teamBadge(g.team)}</td>
+      <td class="l"><span class="pl">${avatar(g, "sm")}<b>${esc(g.name)}</b>${kLink(g.team)}</span></td><td class="l">${teamBadge(g.team)}</td>
       <td>${g.gp}</td><td>${g.gs}</td><td>${g.w}</td><td>${g.l}</td><td>${g.otl}</td><td><b>${f3(g.svPct)}</b></td><td>${f2(g.gaa)}</td><td>${g.so}</td><td>${g.sa}</td>
       <td class="${g.gsaa >= 0 ? "pos" : "neg"}">${sgn(g.gsaa, 1)}</td><td>${f3(g.svPct5)}</td><td class="${g.gsaa5 >= 0 ? "pos" : "neg"}">${sgn(g.gsaa5, 1)}</td>
       <td class="l">${divBar(g.trend)}</td><td class="l">${chip(g.form)}</td><td class="l">${powerMeter(g.power)}</td></tr>`).join("") || `<tr><td colspan="17"><div class="empty">Sin resultados.</div></td></tr>`;
@@ -454,7 +454,7 @@ function viewGoalies(app) {
     $("#g-tbl thead").querySelectorAll("th").forEach((x) => x.removeAttribute("aria-sort"));
     th.setAttribute("aria-sort", state.gdir < 0 ? "descending" : "ascending"); saveState(); draw();
   });
-  $("#g-tbl tbody").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-g]"); if (tr) openGoalie(+tr.dataset.g); });
+  $("#g-tbl tbody").addEventListener("click", (e) => { if (e.target.closest("a")) return; const tr = e.target.closest("tr[data-g]"); if (tr) openGoalie(+tr.dataset.g); });
   draw();
   const gs = activeGo().filter((g) => g.gp >= 5);
   const ds = ["hot", "up", "flat", "down", "cold"].map((f) => ({ label: FORM[f].label, data: gs.filter((g) => g.form === f).map((g) => ({ x: g.sa, y: g.svPct, g })),
@@ -484,11 +484,11 @@ function viewTeams(app) {
           <td class="l">${t.divRank}</td><td class="l">${teamBadge(t.abbr)}</td><td>${t.gp}</td><td>${t.w}-${t.l}-${t.otl}</td><td><b>${t.pts}</b></td><td>${f3(t.ptsPct)}</td>
           <td>${t.gf}</td><td>${t.ga}</td><td class="${t.gf - t.ga >= 0 ? "pos" : "neg"}">${sgn(t.gf - t.ga, 0)}</td>
           <td class="l"><span class="st-res" title="${t.l10.w}-${t.l10.l}-${t.l10.otl}">${t.games.slice(-10).map((g) => `<i class="${g[4]}" title="${dShort(g[0])} ${g[5] ? "vs" : "@"} ${g[1]} ${g[2]}-${g[3]} ${g[4]}"></i>`).join("")}</span> <span class="dim">${t.l10.w}-${t.l10.l}-${t.l10.otl}</span></td>
-          <td>${esc(t.streak)}</td><td class="l">${t.next ? `${t.next.home ? "vs" : "@"} ${esc(t.next.opp)} · ${dShort(t.next.date)}` : "–"}</td></tr>`).join("")}</tbody></table></div></div></section>`).join("")}
+          <td>${esc(t.streak)}</td><td class="l">${t.next ? `${t.next.home ? "vs" : "@"} ${esc(t.next.opp)} · ${dShort(t.next.date)} ${kLink(t.abbr)}` : "–"}</td></tr>`).join("")}</tbody></table></div></div></section>`).join("")}
     </div>
     <div class="legend"><span class="st-res"><i class="W"></i></span> Victoria <span class="st-res"><i class="OTL"></i></span> Derrota en prórroga/penales <span class="st-res"><i class="L"></i></span> Derrota</div>
   </div>`;
-  app.querySelectorAll("tr[data-t]").forEach((tr) => tr.addEventListener("click", () => openTeam(tr.dataset.t)));
+  app.querySelectorAll("tr[data-t]").forEach((tr) => tr.addEventListener("click", (e) => { if (!e.target.closest("a")) openTeam(tr.dataset.t); }));
   const ts = D.teams;
   mkChart($("#t-diff"), { type: "bar", data: { labels: ts.map((t) => t.abbr), datasets: [{ label: "DIF", data: ts.map((t) => t.gf - t.ga),
     backgroundColor: ts.map((t) => (t.gf - t.ga >= 0 ? css("--candle-up") : css("--candle-down"))), borderRadius: 4, barPercentage: 0.7 }] },
@@ -530,7 +530,7 @@ function gameCard(g) {
   return `<article class="game"><div class="game-h">${teamBadge(g.away, true)}<span class="vs">@</span>${teamBadge(g.home, true)}
     <span class="time">${live ? `<b class="num">${g.awayScore ?? 0} – ${g.homeScore ?? 0}</b><br>${g.state === "OFF" || g.state === "FINAL" ? "Final" : "En juego"}` : `<b>${tLocal(g.start)}</b><br>${esc(g.venue || "")}`}</span></div>
     <div class="game-cols">${col(g.away, g.home)}${col(g.home, g.away)}</div>
-    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center"><a class="vs-link" href="#vsportero" data-vsgame="${g.id}">Ver duelos jugador vs portero →</a>${nhlLink(g.link || gameUrl(g.away, g.home, false, g.date, g.id), "Partido en NHL.com")}${kalshiLink(kUrl(g.id, "game"), "Ganador en Kalshi")}${kalshiLink(kUrl(g.id, "goal"), "Goleadores en Kalshi")}</div></article>`;
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center"><a class="vs-link" href="#vsportero" data-vsgame="${g.id}">Ver duelos jugador vs portero →</a>${nhlLink(g.link || gameUrl(g.away, g.home, false, g.date, g.id), "Partido en NHL.com")}${kalshiLink(kUrl(g.id, "game"))}</div></article>`;
 }
 function chipMini(f) { const x = FORM[f] || FORM.flat; return `<span style="color:var(${x.v})" title="${x.label}">${x.icon}</span>`; }
 
@@ -598,8 +598,8 @@ function calibTable() {
 
 /* ------------------------------------------------------------------ MODALES */
 function bindOpeners(root) {
-  root.querySelectorAll("[data-p]").forEach((el) => el.addEventListener("click", (e) => { e.stopPropagation(); openPlayer(+el.dataset.p); }));
-  root.querySelectorAll("[data-g]").forEach((el) => el.addEventListener("click", (e) => { e.stopPropagation(); openGoalie(+el.dataset.g); }));
+  root.querySelectorAll("[data-p]").forEach((el) => el.addEventListener("click", (e) => { if (e.target.closest("a")) return; e.stopPropagation(); openPlayer(+el.dataset.p); }));
+  root.querySelectorAll("[data-g]").forEach((el) => el.addEventListener("click", (e) => { if (e.target.closest("a")) return; e.stopPropagation(); openGoalie(+el.dataset.g); }));
 }
 function openModal(html, after, again) {
   destroy(modalCharts);
@@ -635,7 +635,7 @@ function openPlayer(id) {
   openModal(`
     <div class="sheet-h">${avatar(s, "lg")}
       <div><h2 id="sheet-title">${esc(s.name)}</h2>
-        <div class="facts">${teamBadge(s.team, true)} <span>#${s.num ?? "–"}</span>${nhlLink(`https://www.nhl.com/player/${s.id}`, "Perfil NHL.com")}<span>${POS[s.pos] || s.pos}</span><span>${s.age ? s.age + " años" : ""}</span><span>${s.shoots ? "Tira " + (s.shoots === "L" ? "izq." : "der.") : ""}</span>${chip(s.form)}${missedBadge(s)}</div></div>
+        <div class="facts">${teamBadge(s.team, true)} <span>#${s.num ?? "–"}</span>${nhlLink(`https://www.nhl.com/player/${s.id}`, "Perfil NHL.com")}${kLink(s.team)}<span>${POS[s.pos] || s.pos}</span><span>${s.age ? s.age + " años" : ""}</span><span>${s.shoots ? "Tira " + (s.shoots === "L" ? "izq." : "der.") : ""}</span>${chip(s.form)}${missedBadge(s)}</div></div>
       <button class="close" type="button" aria-label="Cerrar">×</button></div>
 
     <div class="statline">
@@ -650,7 +650,7 @@ function openPlayer(id) {
       ${statCell("TOI L5", mmss(s.toi5), s.toi5 - s.toi)}${statCell("Racha punto", s.pStreak)}${statCell("Sin punto", s.dryStreak)}
     </div>
 
-    <section class="panel"><div class="panel-h"><h3>Próximo partido</h3><span class="sub">${nx ? `${nx.home ? "vs" : "@"} ${esc(TEAM[nx.opp]?.name || nx.opp)} · ${nx.start ? new Date(nx.start).toLocaleString("es", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }) : dLong(nx.date)}` : "Sin partido programado esta semana"}</span><span class="right">${nhlLink(nextUrl(s.team), "Ver partido en NHL.com")}</span></div>
+    <section class="panel"><div class="panel-h"><h3>Próximo partido</h3><span class="sub">${nx ? `${nx.home ? "vs" : "@"} ${esc(TEAM[nx.opp]?.name || nx.opp)} · ${nx.start ? new Date(nx.start).toLocaleString("es", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }) : dLong(nx.date)}` : "Sin partido programado esta semana"}</span><span class="right" style="display:flex;gap:14px">${nhlLink(nextUrl(s.team), "Ver partido en NHL.com")}${kLink(s.team)}</span></div>
       <div class="panel-b"><div class="proj">
         <div><span class="ring" style="--p:${Math.round(pj.pGoal * 100)}"><span>${pct(pj.pGoal)}</span></span><small>P(marcar gol)</small><b class="num">${pct(pj.pGoal)}</b></div>
         <div><span class="ring" style="--p:${Math.round(pj.pPoint * 100)}"><span>${pct(pj.pPoint)}</span></span><small>P(1+ punto)</small><b class="num">${pct(pj.pPoint)}</b></div>
@@ -706,7 +706,7 @@ function openGoalie(id) {
   const L = g.log;
   openModal(`
     <div class="sheet-h">${avatar(g, "lg")}
-      <div><h2 id="sheet-title">${esc(g.name)}</h2><div class="facts">${teamBadge(g.team, true)} <span>#${g.num ?? "–"}</span><span>Portero</span><span>${g.age ? g.age + " años" : ""}</span>${chip(g.form)}${missedBadge(g)}${nhlLink(`https://www.nhl.com/player/${g.id}`, "Perfil NHL.com")}${nextUrl(g.team) ? nhlLink(nextUrl(g.team), "Próximo partido") : ""}</div></div>
+      <div><h2 id="sheet-title">${esc(g.name)}</h2><div class="facts">${teamBadge(g.team, true)} <span>#${g.num ?? "–"}</span><span>Portero</span><span>${g.age ? g.age + " años" : ""}</span>${chip(g.form)}${missedBadge(g)}${nhlLink(`https://www.nhl.com/player/${g.id}`, "Perfil NHL.com")}${kLink(g.team)}${nextUrl(g.team) ? nhlLink(nextUrl(g.team), "Próximo partido") : ""}</div></div>
       <button class="close" type="button" aria-label="Cerrar">×</button></div>
     ${goalieKalshiBlock(g)}
     <div class="statline">${statCell("PJ", g.gp)}${statCell("Titular", g.gs)}${statCell("V-D-DP", `${g.w}-${g.l}-${g.otl}`)}${statCell("SV%", f3(g.svPct))}${statCell("GAA", f2(g.gaa))}
@@ -738,7 +738,7 @@ function openTeam(ab) {
   const gls = activeGo().filter((g) => g.team === ab);
   openModal(`
     <div class="sheet-h"><span class="av lg">${t.logo ? `<img src="${esc(t.logo)}" alt="" onerror="this.remove()" style="object-fit:contain;padding:8px">` : ""}${esc(ab)}</span>
-      <div><h2 id="sheet-title">${esc(t.name)}</h2><div class="facts"><span>${esc(t.div)} · ${t.divRank}º división · ${t.leagueRank}º liga</span><span>Racha ${esc(t.streak)}</span>${nhlLink(nextUrl(ab), "Próximo partido en NHL.com")}</div></div>
+      <div><h2 id="sheet-title">${esc(t.name)}</h2><div class="facts"><span>${esc(t.div)} · ${t.divRank}º división · ${t.leagueRank}º liga</span><span>Racha ${esc(t.streak)}</span>${nhlLink(nextUrl(ab), "Próximo partido en NHL.com")}${kLink(ab)}</div></div>
       <button class="close" type="button" aria-label="Cerrar">×</button></div>
     <div class="statline">${statCell("PJ", t.gp)}${statCell("V-D-DP", `${t.w}-${t.l}-${t.otl}`)}${statCell("Puntos", t.pts)}${statCell("P%", f3(t.ptsPct))}${statCell("GF/PJ", f2(t.gfpg))}${statCell("GC/PJ", f2(t.gapg))}
       ${statCell("Casa", t.home)}${statCell("Fuera", t.road)}${statCell("L10", `${t.l10.w}-${t.l10.l}-${t.l10.otl}`)}</div>
@@ -937,7 +937,7 @@ function vsTable(team, gk) {
       <th class="l">Jugador</th><th class="l">Forma</th><th title="Partidos contra este portero">PJ vs</th><th>Tiros</th><th>G</th><th>A</th><th>P</th><th title="% de tiro contra él / % de tiro general">%Tiro vs</th>
       <th title="Goles esperados con esos tiros">G esp.</th><th title="Factor del historial cara a cara para gol">Duelo</th><th>P(gol)</th><th title="Precio Sí 1+ gol en Kalshi y diferencia">Kalshi gol</th><th>P(punto)</th><th title="Precio Sí 1+ punto en Kalshi y diferencia">Kalshi punto</th><th class="l">Confianza</th></tr></thead>
       <tbody>${rows.length ? rows.map((m) => `<tr data-p="${m.s.id}">
-        <td class="l"><span class="pl">${avatar(m.s, "sm")}<b>${esc(m.s.name)}</b> <span class="dim">${POS[m.s.pos] || m.s.pos}</span>${missedGames(m.s) ? ` <span class="miss-dot" title="Su equipo jugó ${missedGames(m.s)} partido(s) sin él">⚠ ${missedGames(m.s)}</span>` : ""}</span></td><td class="l">${chip(m.s.form)}</td>
+        <td class="l"><span class="pl">${avatar(m.s, "sm")}<b>${esc(m.s.name)}</b>${kLink(m.s.team)} <span class="dim">${POS[m.s.pos] || m.s.pos}</span>${missedGames(m.s) ? ` <span class="miss-dot" title="Su equipo jugó ${missedGames(m.s)} partido(s) sin él">⚠ ${missedGames(m.s)}</span>` : ""}</span></td><td class="l">${chip(m.s.form)}</td>
         <td>${m.gp}</td><td>${m.sog}</td><td><b>${m.g}</b></td><td>${m.a}</td><td>${m.p}</td>
         <td>${m.shVs != null ? pct(m.shVs) : "–"} <span class="dim">/ ${pct(m.shp)}</span></td><td>${f1(m.xg)}</td><td>${factorCell(m.pairG)}</td>
         <td class="pct">${pct(m.pGoal)} <small>${deltaPct(m.pGoal, m.pGoalBase)}</small></td><td>${kCell(m.s, "goal", m.pGoal)}</td><td class="pct">${pct(m.pPoint)} <small>${deltaPct(m.pPoint, m.pPointBase)}</small></td><td>${kCell(m.s, "pts", m.pPoint)}</td>
@@ -949,7 +949,7 @@ function kCell(s, kind, ours) {
   const m = kMarket(s.id, kind, 1);
   if (!m || !m.ask) return `<span class="dim">–</span>`;
   const gid = kPlayer(s.id).game;
-  return `<a class="kal-link" href="${esc(kUrl(gid, kind))}" target="_blank" rel="noopener" title="Abrir en Kalshi">${cents(m.ask)}</a> ${edgeCell(ours, m.ask)}`;
+  return `<span class="kal-price">${cents(m.ask)}</span> ${edgeCell(ours, m.ask)}`;
 }
 function playerVsBlock(s) {
   if (!H || H.error) return "";
@@ -974,10 +974,13 @@ const KAL = () => D.kalshi || { games: {}, players: {} };
 function kGame(gid) { return KAL().games[gid] || null; }
 function kPlayer(pid) { return KAL().players[pid] || null; }
 function kMarket(pid, kind, line = 1) { const p = kPlayer(pid); return p && p[kind] ? p[kind].find((m) => m.line === line) || null : null; }
-function kUrl(gid, kind) { const g = kGame(gid); return g ? g.links[kind] : null; }
-function kalshiLink(url, label = "Kalshi") {
-  return url ? `<a class="kal-link" href="${esc(url)}" target="_blank" rel="noopener">${label} <span aria-hidden="true">↗</span></a>` : "";
+function kUrl(gid, kind = "game") { const g = kGame(gid); return g ? g.links[kind] : null; }
+function kalshiLink(url) {
+  return url ? `<a class="kal-link" href="${esc(url)}" target="_blank" rel="noopener" title="Abrir el partido en Kalshi">Kalshi</a>` : "";
 }
+/* enlace al próximo partido del equipo en Kalshi (mismo enlace para todos sus jugadores) */
+function teamKalshiUrl(team) { const t = TEAM[team]; return t && t.next ? kUrl(t.next.id, "game") : null; }
+function kLink(team) { return kalshiLink(teamKalshiUrl(team)); }
 const cents = (x) => (x == null ? "–" : Math.round(x * 100) + "¢");
 function edgeCell(ours, ask) {
   if (ours == null || ask == null || ask <= 0) return `<span class="dim">–</span>`;
@@ -1001,7 +1004,7 @@ function playerKalshiBlock(s) {
   const sameGame = kp && kp.game === nx.id;
   const gLink = kUrl(nx.id, "game");
   if (!sameGame) {
-    return `<div class="kal-box"><div><b>Kalshi</b> <span class="dim">· todavía no hay mercados de este jugador para su próximo partido (Kalshi suele abrirlos el mismo día).</span></div>${kalshiLink(gLink, "Ver partido en Kalshi")}</div>`;
+    return `<div class="kal-box"><div>${kalshiLink(gLink)} <span class="dim">· los precios del jugador aparecen cuando Kalshi abre sus mercados (normalmente el mismo día).</span></div></div>`;
   }
   const pr = bestProb(s, nx.opp);
   const rows = [
@@ -1012,11 +1015,11 @@ function playerKalshiBlock(s) {
     ["1+ asistencia", kMarket(s.id, "ast", 1), null, "ast"],
   ].filter((r) => r[1]);
   return `<div class="kal-box" style="display:grid;gap:8px">
-    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:baseline"><b>Mercados en Kalshi</b><span class="dim" style="font-size:12px">precios del ${kalshiFetchedLbl()} · el enlace abre el precio en vivo</span></div>
-    <div class="tbl-wrap"><table class="tbl" style="min-width:560px"><thead><tr><th class="l">Mercado</th><th>Comprar Sí</th><th>Vender Sí</th><th title="Incluye el portero rival probable y su historial contra él">Nuestra prob.*</th><th>Diferencia</th><th class="l"></th></tr></thead>
-    <tbody>${rows.map(([lbl, m, ours, kind]) => `<tr style="cursor:default"><td class="l">${lbl}</td><td><b>${cents(m.ask)}</b></td><td>${cents(m.bid)}</td><td>${ours != null ? pct(ours) : `<span class="dim">–</span>`}</td><td>${ours != null ? edgeCell(ours, m.ask) : `<span class="dim">–</span>`}</td><td class="l">${kalshiLink(kUrl(nx.id, kind), "Abrir")}</td></tr>`).join("")}</tbody></table></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:baseline"><b>Mercados</b> ${kalshiLink(gLink)}<span class="dim" style="font-size:12px">precios del ${kalshiFetchedLbl()} · el enlace abre el precio en vivo</span></div>
+    <div class="tbl-wrap"><table class="tbl" style="min-width:560px"><thead><tr><th class="l">Mercado</th><th>Comprar Sí</th><th>Vender Sí</th><th title="Incluye el portero rival probable y su historial contra él">Nuestra prob.*</th><th>Diferencia</th></tr></thead>
+    <tbody>${rows.map(([lbl, m, ours, kind]) => `<tr style="cursor:default"><td class="l">${lbl}</td><td><b>${cents(m.ask)}</b></td><td>${cents(m.bid)}</td><td>${ours != null ? pct(ours) : `<span class="dim">–</span>`}</td><td>${ours != null ? edgeCell(ours, m.ask) : `<span class="dim">–</span>`}</td></tr>`).join("")}</tbody></table></div>
     <div class="dim" style="font-size:11.5px">* Ajustada al portero rival probable y al historial del jugador contra él, por eso puede diferir un poco de los anillos de arriba.</div>
-    <div style="display:flex;gap:16px;flex-wrap:wrap">${kalshiLink(kUrl(nx.id, "goal"), "Goleadores del partido en Kalshi")}${kalshiLink(kUrl(nx.id, "pts"), "Puntos en Kalshi")}${kalshiLink(gLink, "Ganador en Kalshi")}</div>
+    
   </div>`;
 }
 function goalieKalshiBlock(g) {
@@ -1026,9 +1029,9 @@ function goalieKalshiBlock(g) {
   const kp = kPlayer(g.id);
   const lines = kp && kp.game === nx.id && kp.save ? kp.save : [];
   const avgSa = g.gp ? g.sa / g.gp : 0;
-  return `<div class="kal-box" style="display:grid;gap:8px"><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:baseline"><b>Kalshi · paradas</b><span class="dim" style="font-size:12px">Promedio de tiros recibidos: ${f1(avgSa)} por partido · precios del ${kalshiFetchedLbl()}</span></div>
+  return `<div class="kal-box" style="display:grid;gap:8px"><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:baseline"><b>Paradas</b> ${kalshiLink(kUrl(nx.id, "game"))}<span class="dim" style="font-size:12px">Promedio de tiros recibidos: ${f1(avgSa)} por partido · precios del ${kalshiFetchedLbl()}</span></div>
     ${lines.length ? `<div class="legend">${lines.map((m) => `<span class="chip f-flat">${m.line}+ paradas · ${cents(m.ask)}</span>`).join("")}</div>` : `<span class="dim">Sin mercado de paradas abierto todavía para su próximo partido.</span>`}
-    <div style="display:flex;gap:16px;flex-wrap:wrap">${kalshiLink(kUrl(nx.id, "save"), "Paradas en Kalshi")}${kalshiLink(kUrl(nx.id, "game"), "Ganador en Kalshi")}</div></div>`;
+    </div>`;
 }
 /* jugadores con mayor diferencia a favor frente a Kalshi */
 function kalshiValue(kind, n = 12) {
@@ -1050,7 +1053,7 @@ function kalshiValuePanel() {
   const list = (title, arr, kind) => `<section class="panel"><div class="panel-h"><h3>${title}</h3><span class="sub">Precios del ${kalshiFetchedLbl()}</span></div><div class="panel-b">
     <div class="tbl-wrap"><table class="tbl" style="min-width:600px"><thead><tr><th class="l">Jugador</th><th class="l">Partido</th><th>Nuestra</th><th>Kalshi Sí</th><th>Diferencia</th><th class="l"></th></tr></thead>
     <tbody>${arr.map((x) => `<tr data-p="${x.s.id}"><td class="l"><span class="pl">${avatar(x.s, "sm")}<b>${esc(x.s.name)}</b> ${chipMini(x.s.form)}</span></td><td class="l">${x.g.away} @ ${x.g.home}</td>
-      <td class="pct">${pct(x.ours)}</td><td><b>${cents(x.m.ask)}</b></td><td>${edgeCell(x.ours, x.m.ask)}</td><td class="l">${kalshiLink(kUrl(x.g.id, kind), "Abrir")}</td></tr>`).join("") || `<tr><td colspan="6"><div class="empty">Sin mercados abiertos.</div></td></tr>`}</tbody></table></div></div></section>`;
+      <td class="pct">${pct(x.ours)}</td><td><b>${cents(x.m.ask)}</b></td><td>${edgeCell(x.ours, x.m.ask)}</td><td class="l">${kalshiLink(kUrl(x.g.id, "game"))}</td></tr>`).join("") || `<tr><td colspan="6"><div class="empty">Sin mercados abiertos.</div></td></tr>`}</tbody></table></div></div></section>`;
   return `<div class="grid g2">${list("Valor vs Kalshi · 1+ gol", kalshiValue("pGoal"), "goal")}${list("Valor vs Kalshi · 1+ punto", kalshiValue("pPoint"), "pts")}</div>
     <p class="chart-note" style="margin:-8px 0 0">Diferencia = nuestra probabilidad − precio de compra del Sí. <span class="edge edge-pos">+4 pts o más</span> nuestro modelo ve más probabilidad que el mercado; <span class="edge edge-neg">−4 o menos</span> el mercado ve más. No incluye comisiones de Kalshi ni alineaciones confirmadas.</p>`;
 }
