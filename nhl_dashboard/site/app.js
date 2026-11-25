@@ -10,7 +10,7 @@ const FORM = {
   cold: { label: "Frío",       icon: "❄",  cls: "f-cold", v: "--cold" },
 };
 const POS = { C: "C", L: "LW", R: "RW", D: "D", G: "G" };
-const VIEWS = ["resumen", "jugadores", "porteros", "equipos", "partidos", "metodo"];
+const VIEWS = ["resumen", "jugadores", "porteros", "equipos", "partidos", "vsportero", "metodo"];
 
 let D = null;               // dataset
 let TEAM = {};              // abbr -> team
@@ -144,6 +144,7 @@ async function boot() {
   D.teams.forEach((t) => (TEAM[t.abbr] = t));
   D.skaters.forEach((s) => (s.kind = "S"));
   D.goalies.forEach((g) => (g.kind = "G"));
+  loadH2H();
   const gen = new Date(D.generatedAt);
   const next = new Date(gen.getTime() + 24 * 3600 * 1000);
   $("#season-lbl").textContent = `Temporada regular ${D.seasonLabel}`;
@@ -173,7 +174,7 @@ function route() {
   document.querySelectorAll(".tab").forEach((a) => a.setAttribute("aria-current", a.getAttribute("href") === "#" + v ? "page" : "false"));
   destroy(charts);
   const app = $("#app");
-  ({ resumen: viewSummary, jugadores: viewPlayers, porteros: viewGoalies, equipos: viewTeams, partidos: viewGames, metodo: viewMethod })[v](app);
+  ({ resumen: viewSummary, jugadores: viewPlayers, porteros: viewGoalies, equipos: viewTeams, partidos: viewGames, vsportero: viewVs, metodo: viewMethod })[v](app);
 }
 
 const activeSk = () => D.skaters.filter((s) => s.active);
@@ -479,6 +480,7 @@ function viewGames(app) {
       <div class="panel-b"><div class="games">${byDate[d].map(gameCard).join("")}</div></div></section>`).join("") : `<section class="panel"><div class="empty">No hay partidos en el calendario de esta semana.</div></section>`}
   </div>`;
   bindOpeners(app);
+  app.querySelectorAll("[data-vsgame]").forEach((el) => el.addEventListener("click", () => { vs.game = +el.dataset.vsgame; vs.gA = vs.gH = null; }));
 }
 function gameCard(g) {
   const col = (ab, opp) => {
@@ -494,7 +496,8 @@ function gameCard(g) {
   const live = g.state !== "FUT" && g.state !== "PRE";
   return `<article class="game"><div class="game-h">${teamBadge(g.away, true)}<span class="vs">@</span>${teamBadge(g.home, true)}
     <span class="time">${live ? `<b class="num">${g.awayScore ?? 0} – ${g.homeScore ?? 0}</b><br>${g.state === "OFF" || g.state === "FINAL" ? "Final" : "En juego"}` : `<b>${tLocal(g.start)}</b><br>${esc(g.venue || "")}`}</span></div>
-    <div class="game-cols">${col(g.away, g.home)}${col(g.home, g.away)}</div></article>`;
+    <div class="game-cols">${col(g.away, g.home)}${col(g.home, g.away)}</div>
+    <a class="vs-link" href="#vsportero" data-vsgame="${g.id}">Ver duelos jugador vs portero →</a></article>`;
 }
 function chipMini(f) { const x = FORM[f] || FORM.flat; return `<span style="color:var(${x.v})" title="${x.label}">${x.icon}</span>`; }
 
@@ -526,6 +529,16 @@ function viewMethod(app) {
     <p>Percentil dentro de la liga que combina: 55% IMP por partido en la temporada (contraído hacia la media si jugó pocos partidos), 30% IMP de los últimos 10 y 15% tiempo en hielo. Para porteros: 55% GSAA por partido, 30% GSAA de los últimos 5 y 15% titularidades.</p>
     <h3>Velas</h3>
     <p>Cada vela es una semana (lunes a domingo). El "precio" del jugador empieza en 100 y en cada partido sube o baja según cuánto superó la media de su posición (IMP − media liga). Verde = semana en la que su precio subió; rojo = bajó. La mecha marca el máximo y el mínimo alcanzado durante esa semana. En porteros el precio es su GSAA acumulado, y en equipos los puntos acumulados por encima de un ritmo de 1 punto por partido.</p>
+    <h3>Jugador vs portero</h3>
+    <p>Del play-by-play oficial de ${H ? H.games : "todos los"} partidos (temporadas ${H ? H.seasons.map((x) => x.slice(0, 4) + "-" + x.slice(6)).join(", ") : "recientes"}, temporada regular y playoffs, sin tandas de penales) se registra cada tiro a puerta y cada gol con el portero que estaba en la red, las asistencias en esos goles y los partidos en que el jugador estuvo alineado contra ese portero. Los goles a portería vacía no cuentan.</p>
+    <p>Los historiales cara a cara suelen tener muestras pequeñas, así que el ajuste se contrae hacia lo esperado:</p>
+    <ul>
+      <li><b>Factor portero</b>: goles que concede por tiro en las 3 temporadas frente a la media de liga, con 300 tiros de peso hacia la media.</li>
+      <li><b>Factor duelo (gol)</b>: <code>(goles vs portero + 2) / (goles esperados vs portero + 2)</code>, donde los esperados = tiros vs portero × % de tiro del jugador × factor portero. Limitado entre 0,75 y 1,35.</li>
+      <li><b>Factor duelo (punto)</b>: <code>(puntos vs portero + 2) / (PJ vs portero × puntos por partido + 2)</code>, también limitado.</li>
+      <li>La probabilidad final de gol usa el modelo base del jugador sin ajuste de rival × factor portero × factor duelo (entre 0,7 y 1,45). Para puntos el portero pesa la mitad (raíz cuadrada del factor).</li>
+      <li><b>Confianza</b>: baja con menos de 8 tiros contra ese portero, media de 8 a 24, alta con 25 o más.</li>
+    </ul>
     <h3>Probabilidades P(gol) y P(punto)</h3>
     <p>Para el siguiente partido: tasa de tiros (50% temporada, 30% últimos 10, 20% últimos 5) × % de tiro contraído hacia la media de liga (${pct(D.league.shPct)}) con 80 tiros de peso, ajustado por los goles que recibe el rival (±20% máx.) y por el cambio reciente de minutos. La probabilidad final mezcla 50% modelo de Poisson y 50% frecuencia real de partidos en los que el jugador marcó o sumó punto.</p>
     <p><b>Importante:</b> son estimaciones estadísticas para ordenar candidatos, no garantías. No tienen en cuenta lesiones del día, alineaciones confirmadas ni cuotas. Valídalas siempre antes de apostar.</p>
@@ -596,6 +609,8 @@ function openPlayer(id) {
         <div><small>Factor rival</small><b class="num">${f2(pj.oppF)}</b><div class="dim" style="font-size:11.5px">&gt;1 = rival concede más que la media</div></div>
       </div></div></section>
 
+    <section class="panel" id="m-vs"><div class="panel-h"><h3>Contra porteros</h3><span class="sub">Cargando historial…</span></div></section>
+
     <section class="panel"><div class="panel-h"><h3>Velas semanales de rendimiento</h3><span class="sub">Precio inicia en 100 · sube si supera la media de su posición</span></div>
       <div class="panel-b"><div class="chart-box"><canvas id="m-candle"></canvas></div>
       <div class="legend" style="margin-top:8px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--candle-up)"></span> Semana al alza <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--candle-down);margin-left:10px"></span> Semana a la baja</div></div></section>
@@ -613,6 +628,7 @@ function openPlayer(id) {
         <td class="${r[8] > 0 ? "pos" : r[8] < 0 ? "neg" : ""}">${r[8] > 0 ? "+" : ""}${r[8]}</td><td>${r[9]}</td><td>${r[10]}</td><td>${r[11]}</td><td class="${r[12] >= s.imp ? "pos" : "neg"}">${f2(r[12])}</td></tr>`).join("")}</tbody></table></div></div></section>
   `, () => {
     candleChart($("#m-candle"), s.candles, { bucket: modalCharts, yLabel: "Precio" });
+    whenH2H(() => { const el = $("#m-vs"); if (el && el.isConnected) { el.outerHTML = playerVsBlock(s); bindOpeners($("#sheet")); } });
     const labels = L.map((r) => dShort(r[0]));
     const tip = (it) => { const r = L[it[0].dataIndex]; return `${dShort(r[0])} ${r[2] ? "vs" : "@"} ${r[1]}`; };
     const o = (extra = {}) => { const b = baseOpts(); b.plugins.tooltip.callbacks = { title: tip }; return Object.assign(b, extra); };
@@ -688,6 +704,210 @@ function openTeam(ab) {
       { label: "Goles a favor", data: G.map((r) => r[2]), backgroundColor: css("--candle-up"), borderRadius: 3 },
       { label: "Goles en contra", data: G.map((r) => r[3]), backgroundColor: css("--candle-down"), borderRadius: 3 }] }, options: b }, modalCharts);
   }, () => openTeam(ab));
+}
+
+/* ------------------------------------------------------------------ JUGADOR VS PORTERO */
+const H2H_URL = "data/h2h.json";
+let H = null;                 // {seasons, games, pairs:{sid:[[gid,gp,sog,g,a,gpCur,sogCur,gCur]]}, shooters, goalies}
+let H_IDX = null;             // "sid:gid" -> fila
+let hWaiters = [];
+const vs = { game: null, gA: null, gH: null, team: "", goalie: "", minShots: 0 };
+
+async function loadH2H() {
+  try {
+    const r = await fetch(H2H_URL, { cache: "no-cache" });
+    if (!r.ok) throw new Error(r.status);
+    H = await r.json();
+    H_IDX = new Map();
+    for (const [sid, rows] of Object.entries(H.pairs)) for (const row of rows) H_IDX.set(sid + ":" + row[0], row);
+  } catch (e) { H = { error: true, pairs: {}, shooters: {}, goalies: {}, seasons: [], games: 0 }; H_IDX = new Map(); }
+  const w = hWaiters; hWaiters = []; w.forEach((f) => f());
+  if ((location.hash || "").slice(1) === "vsportero") route();
+}
+function whenH2H(f) { if (H) f(); else hWaiters.push(f); }
+
+const lgSv = () => D.league.svPct || 0.9;
+function goalieFactor(gid) {
+  const g = H.goalies[gid];
+  const lgGa = 1 - lgSv();
+  if (!g) return { f: 1, sa: 0, ga: 0, sv: null };
+  const rate = (g[1] + 300 * lgGa) / (g[0] + 300);
+  return { f: rate / lgGa, sa: g[0], ga: g[1], sv: g[0] ? 1 - g[1] / g[0] : null };
+}
+function shooterPct(sid) {
+  const sh = H.shooters[sid];
+  const lg = D.league.shPct || 0.1;
+  return sh ? (sh[1] + 80 * lg) / (sh[0] + 80) : lg;
+}
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const scaleP = (p, r) => 1 - Math.pow(1 - Math.min(p, 0.99), r);
+
+/** Duelo de un jugador contra un portero concreto. */
+function matchup(s, gid) {
+  const row = H_IDX.get(s.id + ":" + gid) || [gid, 0, 0, 0, 0, 0, 0, 0];
+  const [, gp, sog, g, a, gpC, sogC, gC] = row;
+  const gf = goalieFactor(gid);
+  const shp = shooterPct(s.id);
+  const xg = sog * shp * gf.f;
+  const pairG = clamp((g + 2) / (xg + 2), 0.75, 1.35);
+  const xp = gp * (s.ptsPg || 0);
+  const pairP = clamp((g + a + 2) / (xp + 2), 0.75, 1.35);
+  const mG = clamp(gf.f * pairG, 0.7, 1.45);
+  const mP = clamp(Math.sqrt(gf.f) * pairP, 0.7, 1.45);
+  // probabilidad base sin ajuste de rival
+  const o = s.proj.oppF || 1;
+  const p0g = scaleP(s.proj.pGoal, 1 / o), p0p = scaleP(s.proj.pPoint, 1 / o);
+  return {
+    s, gid, gp, sog, g, a, p: g + a, gpC, sogC, gC, xg, shVs: sog ? g / sog : null, shp,
+    pairG, pairP, gf: gf.f, mG, mP,
+    pGoal: scaleP(p0g, mG), pPoint: scaleP(p0p, mP), pGoalBase: s.proj.pGoal, pPointBase: s.proj.pPoint,
+    conf: sog >= 25 ? "alta" : sog >= 8 ? "media" : "baja",
+  };
+}
+function lastStarter(team) {
+  return activeGo().filter((x) => x.team === team && x.log.length)
+    .sort((a, b) => b.log[b.log.length - 1][0].localeCompare(a.log[a.log.length - 1][0]) || b.gs - a.gs)[0];
+}
+function confChip(c) {
+  const map = { alta: ["--up", "●●●"], media: ["--gold", "●●○"], baja: ["--fg-3", "●○○"] };
+  const [v, dots] = map[c];
+  return `<span class="conf" style="color:var(${v})" title="Confianza ${c} (tamaño de muestra)">${dots} <span>${c}</span></span>`;
+}
+function factorCell(f) {
+  const cls = f >= 1.08 ? "pos" : f <= 0.92 ? "neg" : "";
+  return `<span class="num ${cls}" title="Multiplicador sobre su probabilidad base">×${f.toFixed(2)}</span>`;
+}
+function deltaPct(p, base) {
+  const d = Math.round((p - base) * 100);
+  if (!d) return `<span class="dim">±0</span>`;
+  return `<span class="${d > 0 ? "pos" : "neg"}">${d > 0 ? "▲" : "▼"}${Math.abs(d)}</span>`;
+}
+
+function viewVs(app) {
+  if (!H) { app.innerHTML = `<div class="loading">Cargando historial jugador vs portero…</div>`; return; }
+  if (H.error) { app.innerHTML = `<section class="panel"><div class="empty">No se encontró <code>${H2H_URL}</code>. Ejecuta <code>python nhl_dashboard/fetch_nhl.py</code>.</div></section>`; return; }
+  const upcoming = D.schedule.filter((g) => g.state === "FUT" || g.state === "PRE");
+  const games = upcoming.length ? upcoming : D.schedule;
+  if (vs.game == null || !games.find((g) => g.id === vs.game)) vs.game = games[0]?.id ?? null;
+  const game = games.find((g) => g.id === vs.game);
+
+  // mejores duelos de toda la semana (contra el último portero titular rival)
+  const best = [];
+  games.forEach((g) => [[g.away, g.home], [g.home, g.away]].forEach(([team, opp]) => {
+    const gk = lastStarter(opp);
+    if (!gk) return;
+    activeSk().filter((s) => s.team === team && s.gp >= 5 && s.log.length && daysSince(s.log[s.log.length - 1][0]) <= 12)
+      .forEach((s) => { const m = matchup(s, gk.id); if (m.sog >= 8) best.push({ ...m, game: g, goalie: gk }); });
+  }));
+  // un jugador puede jugar varias veces en la semana: se queda su mejor duelo
+  const uniq = (arr) => { const seen = new Set(); return arr.filter((m) => !seen.has(m.s.id) && seen.add(m.s.id)); };
+  const bestGoal = uniq([...best].sort((a, b) => b.pGoal - a.pGoal)).slice(0, 10);
+  const bestPoint = uniq([...best].sort((a, b) => b.pPoint - a.pPoint)).slice(0, 10);
+  const owners = uniq([...best].filter((m) => m.g >= 3).sort((a, b) => (b.g - b.xg) - (a.g - a.xg))).slice(0, 10);
+
+  app.innerHTML = `<div class="view">
+    <section class="panel"><div class="panel-b" style="font-size:13px;color:var(--fg-2);display:grid;gap:6px">
+      <div>Historial cara a cara de cada jugador contra cada portero, sacado del play-by-play oficial de <b>${H.games}</b> partidos (temporadas ${H.seasons.map((x) => x.slice(0, 4) + "-" + x.slice(6)).join(", ")}, incluye playoffs). La probabilidad ajustada combina su forma actual, la calidad del portero y su historial contra él.</div>
+      <div class="legend">${confChip("alta")} 25+ tiros ${confChip("media")} 8–24 ${confChip("baja")} menos de 8 · <span class="pos">×1.20</span> duelo favorable · <span class="neg">×0.85</span> desfavorable</div>
+    </div></section>
+
+    <div class="grid g4" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr))">
+      ${bestList("Mayor P(gol) vs portero rival", "Duelos de la semana con 8+ tiros de historial", bestGoal, "pGoal", "pGoalBase")}
+      ${bestList("Mayor P(punto) vs portero rival", "Ajustado por historial de puntos contra él", bestPoint, "pPoint", "pPointBase")}
+      ${bestList("Dueños del portero", "Más goles de lo esperado contra el portero rival de esta semana (3+ goles)", owners, "pairG", null)}
+    </div>
+
+    <section class="panel"><div class="panel-h"><h2>Duelos por partido</h2><span class="sub">Elige el partido y el portero</span></div>
+      <div class="panel-b" style="display:grid;gap:14px">
+        <div class="filters">
+          <label class="fld">Partido<select id="vs-game">${games.map((g) => `<option value="${g.id}" ${g.id === vs.game ? "selected" : ""}>${dShort(g.date)} · ${g.away} @ ${g.home}${g.start ? " · " + tLocal(g.start) : ""}</option>`).join("")}</select></label>
+          <label class="fld">Mín. tiros vs portero <input type="number" id="vs-min" min="0" value="${vs.minShots}" style="width:80px"></label>
+        </div>
+        ${game ? `<div class="grid">${sidePanel(game.away, game.home, "gA")}${sidePanel(game.home, game.away, "gH")}</div>` : `<div class="empty">No hay partidos esta semana.</div>`}
+      </div></section>
+
+    <section class="panel"><div class="panel-h"><h2>Explorador libre</h2><span class="sub">Cualquier equipo contra cualquier portero</span></div>
+      <div class="panel-b" style="display:grid;gap:14px">
+        <div class="filters">
+          <label class="fld">Jugadores de<select id="vs-team">${D.teams.map((t) => t.abbr).sort().map((t) => `<option ${t === (vs.team || D.teams[0].abbr) ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+          <label class="fld">Contra el portero<select id="vs-goalie">${activeGo().slice().sort((a, b) => a.team.localeCompare(b.team) || b.gp - a.gp).map((g) => `<option value="${g.id}" ${String(g.id) === String(vs.goalie) ? "selected" : ""}>${g.team} · ${esc(g.name)}</option>`).join("")}</select></label>
+        </div>
+        <div id="vs-free"></div>
+      </div></section>
+  </div>`;
+
+  bindOpeners(app);
+  $("#vs-game")?.addEventListener("change", (e) => { vs.game = +e.target.value; vs.gA = vs.gH = null; route(); });
+  $("#vs-min")?.addEventListener("change", (e) => { vs.minShots = +e.target.value || 0; route(); });
+  app.querySelectorAll("select[data-side]").forEach((sel) => sel.addEventListener("change", () => { vs[sel.dataset.side] = +sel.value; route(); }));
+  const drawFree = () => {
+    vs.team = $("#vs-team").value; vs.goalie = $("#vs-goalie").value;
+    const opp = activeGo().find((g) => String(g.id) === vs.goalie);
+    $("#vs-free").innerHTML = opp ? vsTable(vs.team, opp) : "";
+    bindOpeners($("#vs-free"));
+  };
+  if (!vs.goalie) { const t = D.teams.find((t) => t.abbr === (vs.team || D.teams[0].abbr)); const opp = t?.next ? lastStarter(t.next.opp) : activeGo()[0]; if (opp) { vs.goalie = String(opp.id); $("#vs-goalie").value = vs.goalie; } }
+  $("#vs-team").addEventListener("change", drawFree);
+  $("#vs-goalie").addEventListener("change", drawFree);
+  drawFree();
+}
+
+function bestList(title, sub, arr, key, baseKey) {
+  return `<section class="panel"><div class="panel-h"><h3>${title}</h3></div><div class="panel-b"><p class="dim" style="margin:0 0 8px;font-size:12px">${sub}</p>
+    <div class="tlist">${arr.length ? arr.map((m) => `<button class="trow" data-p="${m.s.id}" type="button" style="grid-template-columns:28px minmax(0,1fr) auto">${avatar(m.s, "sm")}
+      <span><div class="nm">${esc(m.s.name)} <span class="dim">${m.s.team}</span></div>
+      <div class="sub">${dShort(m.game.date)} vs ${esc(lastName(m.goalie.name))} (${m.goalie.team}) · ${m.gp} PJ · ${m.g}G ${m.a}A en ${m.sog} tiros · ${confChip(m.conf)}</div></span>
+      <span class="delta" style="text-align:right">${key === "pairG" ? `<span class="pos">+${f1(m.g - m.xg)}</span><br><small class="dim">goles sobre lo esperado</small>` : `<span class="pct">${pct(m[key])}</span><br><small>${deltaPct(m[key], m[baseKey])}</small>`}</span></button>`).join("")
+      : `<div class="empty">Sin duelos con muestra suficiente.</div>`}</div></div></section>`;
+}
+
+function sidePanel(team, opp, side) {
+  const goalies = activeGo().filter((g) => g.team === opp).sort((a, b) => b.gs - a.gs);
+  const def = lastStarter(opp);
+  const gid = vs[side] || def?.id;
+  const gk = goalies.find((g) => g.id === gid) || def;
+  if (!gk) return `<div class="empty">Sin porteros para ${opp}.</div>`;
+  return `<div style="min-width:0;display:grid;gap:10px">
+    <div class="filters" style="align-items:center">${teamBadge(team, true)} <span class="dim">contra</span>
+      <label class="fld" style="flex:1 1 200px">Portero de ${opp}<select data-side="${side}">${goalies.map((g) => `<option value="${g.id}" ${g.id === gk.id ? "selected" : ""}>${esc(g.name)}${def && g.id === def.id ? " (último titular)" : ""}</option>`).join("")}</select></label></div>
+    ${vsTable(team, gk)}</div>`;
+}
+
+function vsTable(team, gk) {
+  const gf = goalieFactor(gk.id);
+  const rows = activeSk().filter((s) => s.team === team && s.gp >= 1).map((s) => matchup(s, gk.id))
+    .filter((m) => m.sog >= vs.minShots).sort((a, b) => b.pGoal - a.pGoal);
+  return `<div class="goalie-card">${avatar(gk, "sm")}<div style="min-width:0"><b>${esc(gk.name)}</b> ${chip(gk.form)}
+      <div class="dim" style="font-size:12px">SV% 3 temp. ${gf.sv != null ? f3(gf.sv) : "–"} en ${gf.sa} tiros · temporada ${f3(gk.svPct)} · GSAA ${sgn(gk.gsaa, 1)}</div></div>
+      <div style="text-align:right"><small class="dim">Factor portero</small><br>${factorCell(gf.f)}</div></div>
+    <div class="tbl-wrap"><table class="tbl" style="min-width:860px"><thead><tr>
+      <th class="l">Jugador</th><th class="l">Forma</th><th title="Partidos contra este portero">PJ vs</th><th>Tiros</th><th>G</th><th>A</th><th>P</th><th title="% de tiro contra él / % de tiro general">%Tiro vs</th>
+      <th title="Goles esperados con esos tiros">G esp.</th><th title="Factor del historial cara a cara para gol">Duelo</th><th>P(gol)</th><th>P(punto)</th><th class="l">Confianza</th></tr></thead>
+      <tbody>${rows.length ? rows.map((m) => `<tr data-p="${m.s.id}">
+        <td class="l"><span class="pl">${avatar(m.s, "sm")}<b>${esc(m.s.name)}</b> <span class="dim">${POS[m.s.pos] || m.s.pos}</span></span></td><td class="l">${chip(m.s.form)}</td>
+        <td>${m.gp}</td><td>${m.sog}</td><td><b>${m.g}</b></td><td>${m.a}</td><td>${m.p}</td>
+        <td>${m.shVs != null ? pct(m.shVs) : "–"} <span class="dim">/ ${pct(m.shp)}</span></td><td>${f1(m.xg)}</td><td>${factorCell(m.pairG)}</td>
+        <td class="pct">${pct(m.pGoal)} <small>${deltaPct(m.pGoal, m.pGoalBase)}</small></td><td class="pct">${pct(m.pPoint)} <small>${deltaPct(m.pPoint, m.pPointBase)}</small></td>
+        <td class="l">${confChip(m.conf)}</td></tr>`).join("") : `<tr><td colspan="13"><div class="empty">Ningún jugador con ese mínimo de tiros.</div></td></tr>`}</tbody></table></div>
+    <p class="chart-note">▲▼ = puntos porcentuales frente a su probabilidad base contra un rival medio.</p>`;
+}
+
+function playerVsBlock(s) {
+  if (!H || H.error) return "";
+  const rows = (H.pairs[s.id] || []).map((r) => matchup(s, r[0])).filter((m) => m.sog > 0 || m.p > 0);
+  const t = TEAM[s.team];
+  const nextGk = t && t.next ? lastStarter(t.next.opp) : null;
+  const nm = nextGk ? matchup(s, nextGk.id) : null;
+  const goalieName = (id) => (D.goalies.find((g) => g.id === id) || {}).name || id;
+  const top = rows.slice().sort((a, b) => b.g - a.g || b.p - a.p).slice(0, 8);
+  return `<section class="panel" id="m-vs"><div class="panel-h"><h3>Contra porteros</h3><span class="sub">${rows.length} porteros activos enfrentados · ${H.seasons.length} temporadas</span></div>
+    <div class="panel-b" style="display:grid;gap:12px">
+      ${nm ? `<div class="goalie-card">${avatar(nextGk, "sm")}<div style="min-width:0"><small class="dim">PRÓXIMO PORTERO PROBABLE</small><br><b>${esc(nextGk.name)}</b> (${nextGk.team}) · ${nm.gp} PJ · ${nm.g}G ${nm.a}A en ${nm.sog} tiros ${confChip(nm.conf)}</div>
+        <div style="text-align:right"><small class="dim">P(gol) · P(punto)</small><br><b class="num">${pct(nm.pGoal)} · ${pct(nm.pPoint)}</b></div></div>` : ""}
+      <div class="tbl-wrap"><table class="tbl" style="min-width:560px"><thead><tr><th class="l">Portero</th><th>PJ</th><th>Tiros</th><th>G</th><th>A</th><th>%Tiro</th><th>Duelo</th><th class="l">Confianza</th></tr></thead>
+      <tbody>${top.map((m) => `<tr data-g="${m.gid}"><td class="l">${esc(goalieName(m.gid))}</td><td>${m.gp}</td><td>${m.sog}</td><td><b>${m.g}</b></td><td>${m.a}</td><td>${m.shVs != null ? pct(m.shVs) : "–"}</td><td>${factorCell(m.pairG)}</td><td class="l">${confChip(m.conf)}</td></tr>`).join("") || `<tr><td colspan="8"><div class="empty">Sin historial.</div></td></tr>`}</tbody></table></div>
+      <a href="#vsportero" class="vs-link">Abrir explorador jugador vs portero →</a>
+    </div></section>`;
 }
 
 boot();

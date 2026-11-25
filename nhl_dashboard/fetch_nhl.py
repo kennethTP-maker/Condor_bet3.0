@@ -227,6 +227,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--season", default=None)
     ap.add_argument("--out", default=str(Path(__file__).parent / "site" / "data" / "nhl.json"))
+    ap.add_argument("--h2h-seasons", type=int, default=3, help="temporadas para jugador vs portero (0 = desactivar)")
     args = ap.parse_args()
 
     today = datetime.now(timezone.utc).date()
@@ -483,6 +484,21 @@ def main():
         sources=[f"{WEB}/standings/now", f"{WEB}/roster/{{TEAM}}/current", f"{WEB}/schedule/now",
                  f"{STATS}/skater/summary", f"{STATS}/skater/realtime", f"{STATS}/goalie/summary"],
     )
+    # ---- jugador vs portero (play-by-play)
+    if args.h2h_seasons > 0:
+        sys.path.insert(0, str(Path(__file__).parent))
+        import h2h
+        y = int(season[:4])
+        seasons = [f"{y - i}{y - i + 1}" for i in range(args.h2h_seasons - 1, -1, -1)]
+        log = lambda m: print(m, file=sys.stderr)
+        caches = h2h.update(seasons, season, list(teams), get_json, pool, log)
+        act_s = {s["id"] for s in skaters if s["active"]} | {pid for pid, b in bio.items() if b["pos"] != "G"}
+        act_g = {g["id"] for g in goalies if g["active"]} | {pid for pid, b in bio.items() if b["pos"] == "G"}
+        hh = h2h.build_output(caches, act_s, act_g, season)
+        hp = Path(args.out).parent / "h2h.json"
+        hp.write_text(json.dumps(hh, separators=(",", ":")), encoding="utf-8")
+        print(f"OK {hp} ({hp.stat().st_size/1e6:.2f} MB) partidos pbp={hh['games']}", file=sys.stderr)
+
     outp = Path(args.out)
     outp.parent.mkdir(parents=True, exist_ok=True)
     outp.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")

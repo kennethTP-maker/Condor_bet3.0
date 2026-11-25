@@ -10,6 +10,9 @@ python nhl_dashboard/fetch_nhl.py           # genera nhl_dashboard/site/data/nhl
 cd nhl_dashboard/site && python -m http.server 8000   # abrir http://localhost:8000
 ```
 
+## Jugador vs portero
+`nhl_dashboard/h2h.py` lee el play-by-play oficial de cada partido de las últimas 3 temporadas (regular + playoffs, sin penales) y registra tiros, goles y asistencias de cada jugador contra cada portero que estaba en la red. Resultado en `site/data/h2h.json`; la pestaña **Vs portero** muestra los mejores duelos de la semana, cada partido con el portero elegible y un explorador libre. La caché `nhl_dashboard/cache/` hace que la ejecución diaria solo descargue los partidos nuevos (la primera ejecución completa tarda ~2-3 min).
+
 ## Actualización cada 24 h
 `.github/workflows/nhl-dashboard.yml` se ejecuta todos los días a las 10:17 UTC: vuelve a descargar los datos, los guarda en el repo y publica la web en GitHub Pages.
 

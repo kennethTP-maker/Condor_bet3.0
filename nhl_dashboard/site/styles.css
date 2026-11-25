@@ -252,3 +252,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 
   .kpi .val { font-size: 26px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* jugador vs portero */
+.conf { display: inline-flex; gap: 4px; align-items: center; font-size: 11px; letter-spacing: .05em; white-space: nowrap; }
+.conf span { color: var(--fg-2); letter-spacing: 0; }
+.goalie-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 10px; }
+.vs-link { font-size: 12.5px; font-weight: 600; text-decoration: none; }
+.vs-link:hover { text-decoration: underline; }
+.tbl small { font-size: 11px; font-weight: 600; }

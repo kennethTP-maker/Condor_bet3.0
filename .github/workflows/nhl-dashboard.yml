@@ -20,7 +20,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -35,7 +35,7 @@ jobs:
         run: |
           git config user.name "nhl-radar-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add nhl_dashboard/site/data/nhl.json
+          git add nhl_dashboard/site/data nhl_dashboard/cache
           if git diff --cached --quiet; then
             echo "Sin cambios en los datos"
           else
