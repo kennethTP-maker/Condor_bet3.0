@@ -1,0 +1,53 @@
+name: NHL Radar - actualización diaria
+
+on:
+  schedule:
+    - cron: "17 10 * * *"   # cada día 10:17 UTC (05:17 Este de EE. UU.), tras terminar todos los partidos
+  workflow_dispatch: {}      # botón "Run workflow" para actualizar a mano
+  push:
+    branches: [main]
+    paths: ["nhl_dashboard/**", ".github/workflows/nhl-dashboard.yml"]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: nhl-dashboard
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Descargar datos oficiales NHL y calcular tendencias
+        run: python nhl_dashboard/fetch_nhl.py
+
+      - name: Guardar datos en el repositorio
+        run: |
+          git config user.name "nhl-radar-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add nhl_dashboard/site/data/nhl.json
+          if git diff --cached --quiet; then
+            echo "Sin cambios en los datos"
+          else
+            git commit -m "NHL Radar: datos $(date -u +%Y-%m-%d)"
+            git push
+          fi
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: nhl_dashboard/site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Condor NHL Radar</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Estadísticas oficiales NHL de todos los jugadores activos, tendencias de forma, velas de rendimiento y proyecciones. Actualizado cada 24 h.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="top-row">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">CB</div>
+        <div><h1>Condor NHL Radar</h1><small id="season-lbl">Temporada regular</small></div>
+      </div>
+      <div class="meta" id="meta"><span>Cargando datos…</span></div>
+    </div>
+    <nav class="tabs" aria-label="Secciones">
+      <a class="tab" href="#resumen">Resumen</a>
+      <a class="tab" href="#jugadores">Jugadores</a>
+      <a class="tab" href="#porteros">Porteros</a>
+      <a class="tab" href="#equipos">Equipos</a>
+      <a class="tab" href="#partidos">Partidos</a>
+      <a class="tab" href="#metodo">Metodología</a>
+    </nav>
+  </div>
+</header>
+<main class="wrap" id="app"><div class="loading">Cargando estadísticas NHL…</div></main>
+<div class="modal" id="modal" hidden><div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title"></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
