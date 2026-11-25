@@ -2,7 +2,8 @@ name: NHL Radar - actualización diaria
 
 on:
   schedule:
-    - cron: "17 10 * * *"   # cada día 10:17 UTC (05:17 Este de EE. UU.), tras terminar todos los partidos
+    - cron: "17 10 * * *"   # 10:17 UTC (05:17 Este de EE. UU.): estadísticas tras terminar todos los partidos
+    - cron: "17 20 * * *"   # 20:17 UTC (15:17 Este): refresca precios de Kalshi del día antes de los partidos
   workflow_dispatch: {}      # botón "Run workflow" para actualizar a mano
   push:
     branches: [main]

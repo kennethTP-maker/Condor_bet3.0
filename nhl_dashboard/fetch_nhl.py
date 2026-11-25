@@ -227,6 +227,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--season", default=None)
     ap.add_argument("--out", default=str(Path(__file__).parent / "site" / "data" / "nhl.json"))
+    ap.add_argument("--no-kalshi", action="store_true", help="no consultar Kalshi")
     ap.add_argument("--h2h-seasons", type=int, default=3, help="temporadas para jugador vs portero (0 = desactivar)")
     args = ap.parse_args()
 
@@ -347,6 +348,20 @@ def main():
     tot_sog = sum(g["sog"] for p in per.values() for g in p["games"])
     lg_shpct = tot_g / tot_sog if tot_sog else 0.1
 
+    # ---- jugador vs portero: caché de play-by-play (también da el historial de tiro de cada jugador)
+    sys.path.insert(0, str(Path(__file__).parent))
+    import model
+    caches = []
+    if args.h2h_seasons > 0:
+        import h2h
+        y = int(season[:4])
+        seasons = [f"{y - i}{y - i + 1}" for i in range(args.h2h_seasons - 1, -1, -1)]
+        caches = h2h.update(seasons, season, list(teams), get_json, pool, lambda m: print(m, file=sys.stderr))
+    pp = model.pos_params(per)
+    priors = model.priors_from_caches(caches, season)
+    calib = model.calibrate(per, pp, priors)
+    print(f"calibración: cg={calib['cg']} cp={calib['cp']} n={calib['n']} brier gol={calib['brierGoal']} punto={calib['brierPoint']}", file=sys.stderr)
+
     skaters = []
     for pid, p in per.items():
         b = bio.get(pid)
@@ -369,26 +384,16 @@ def main():
         ppg_rate = tot["p"] / n
         form, tscore = classify(S, L5, L10, sd, slope(imps[-10:]), ps, dry, ppg_rate, n)
 
-        # proyección próximo partido (mezcla temporada/L10/L5 con contracción)
-        def blend(key):
-            s_rate = tot[key] / n
-            return 0.5 * s_rate + 0.3 * mean([g[key] for g in gs[-10:]]) + 0.2 * mean([g[key] for g in gs[-5:]])
-        sog_rate = blend("sog")
-        sh_pct = (tot["g"] + 80 * lg_shpct) / (tot["sog"] + 80)  # contracción hacia % de liga (80 tiros)
+        # proyección próximo partido (ver model.py)
         nxt = teams.get(team, {}).get("next")
         opp_f = 1.0
         if nxt and nxt["opp"] in teams and lg_gpg:
             opp_f = (teams[nxt["opp"]]["gapg"] or lg_gpg) / lg_gpg
             opp_f = max(0.8, min(1.2, opp_f ** 0.6))
         toi_f = max(0.85, min(1.15, (toi5 / toi) if toi else 1.0))
-        lam_g = sog_rate * sh_pct * opp_f * toi_f
-        lam_p = ((tot["p"] + 4 * 0.45) / (n + 4) * 0.55 + blend("p") * 0.45) * opp_f * toi_f
-        # probabilidad: mitad Poisson, mitad frecuencia real de partidos con gol/punto (contraída)
-        emp_g = (sum(1 for g in gs if g["g"] > 0) + 4 * 0.12) / (n + 4)
-        emp_p = (sum(1 for g in gs if g["p"] > 0) + 4 * 0.35) / (n + 4)
-        pGoal = 0.5 * poisson_at_least_one(lam_g) + 0.5 * min(0.95, emp_g * opp_f * toi_f)
-        pPoint = 0.5 * poisson_at_least_one(lam_p) + 0.5 * min(0.95, emp_p * opp_f * toi_f)
-        proj = dict(g=r2(lam_g, 3), p=r2(lam_p, 3), sog=r2(sog_rate * toi_f, 2),
+        lam_g, lam_p, sog_rate, sh_pct = model.lambdas(gs, pp[model.grp(p["pos"])], priors.get(pid), opp_f, toi_f)
+        pGoal, pPoint = model.prob(lam_g, calib["cg"]), model.prob(lam_p, calib["cp"])
+        proj = dict(g=r2(lam_g, 3), p=r2(lam_p, 3), sog=r2(sog_rate, 2), sh=r2(sh_pct, 4),
                     pGoal=r2(pGoal, 3), pPoint=r2(pPoint, 3),
                     oppF=r2(opp_f, 3))
 
@@ -470,6 +475,16 @@ def main():
     reserves = [dict(id=pid, name=f'{b["first"]} {b["last"]}', team=b["team"], pos=b["pos"], num=b["num"], age=b["age"])
                 for pid, b in bio.items() if pid not in have]
 
+    # ---- Kalshi (mercados de partido y de jugador)
+    kal = None
+    if not args.no_kalshi:
+        sys.path.insert(0, str(Path(__file__).parent))
+        import kalshi
+        try:
+            kal = kalshi.fetch(upcoming, bio, get_json, lambda m: print(m, file=sys.stderr))
+        except Exception as e:
+            print("kalshi error:", e, file=sys.stderr)
+
     out = dict(
         generatedAt=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         season=season, seasonLabel=f"{season[:4]}-{season[6:]}",
@@ -482,19 +497,16 @@ def main():
         skaters=sorted(skaters, key=lambda s: -(s["power"] or -1)),
         goalies=sorted(goalies, key=lambda g: -(g["power"] or -1)),
         reserves=reserves,
+        kalshi=kal,
+        model=dict(calibration=calib, pos={k: {kk: r2(vv, 4) for kk, vv in v.items()} for k, v in pp.items()}),
         sources=[f"{WEB}/standings/now", f"{WEB}/roster/{{TEAM}}/current", f"{WEB}/schedule/now",
                  f"{STATS}/skater/summary", f"{STATS}/skater/realtime", f"{STATS}/goalie/summary"],
     )
-    # ---- jugador vs portero (play-by-play)
-    if args.h2h_seasons > 0:
-        sys.path.insert(0, str(Path(__file__).parent))
-        import h2h
-        y = int(season[:4])
-        seasons = [f"{y - i}{y - i + 1}" for i in range(args.h2h_seasons - 1, -1, -1)]
-        log = lambda m: print(m, file=sys.stderr)
-        caches = h2h.update(seasons, season, list(teams), get_json, pool, log)
+    # ---- jugador vs portero (salida)
+    if caches:
         act_s = {s["id"] for s in skaters if s["active"]} | {pid for pid, b in bio.items() if b["pos"] != "G"}
         act_g = {g["id"] for g in goalies if g["active"]} | {pid for pid, b in bio.items() if b["pos"] == "G"}
+        import h2h
         hh = h2h.build_output(caches, act_s, act_g, season)
         hp = Path(args.out).parent / "h2h.json"
         hp.write_text(json.dumps(hh, separators=(",", ":")), encoding="utf-8")

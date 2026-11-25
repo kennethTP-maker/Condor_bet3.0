@@ -264,3 +264,12 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 
 .nhl-link:hover { text-decoration: underline; }
 .f-miss { color: var(--gold); border-color: color-mix(in srgb, var(--gold) 45%, transparent); background: color-mix(in srgb, var(--gold) 12%, transparent); }
 .miss-dot { color: var(--gold); font-size: 11.5px; font-weight: 700; white-space: nowrap; font-family: var(--f-num); }
+/* Kalshi */
+.kal-link { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; font-weight: 600; color: var(--candle-up); text-decoration: none; white-space: nowrap; font-family: var(--f-body); }
+.kal-link:hover { text-decoration: underline; }
+.kal-box { padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--candle-up) 35%, var(--line-soft)); background: color-mix(in srgb, var(--candle-up) 6%, var(--panel)); border-radius: 10px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.kal-price { white-space: nowrap; font-family: var(--f-num); font-size: 11.5px; font-weight: 600; color: var(--candle-up); }
+.edge { display: inline-block; font-family: var(--f-num); font-weight: 700; font-size: 11.5px; padding: 1px 6px; border-radius: 6px; white-space: nowrap; }
+.edge-pos { color: var(--up); background: color-mix(in srgb, var(--up) 14%, transparent); }
+.edge-neg { color: var(--down); background: color-mix(in srgb, var(--down) 12%, transparent); }
+.edge-flat { color: var(--fg-2); background: var(--line-soft); }
