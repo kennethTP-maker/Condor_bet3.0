@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Condor NHL — descarga diaria de datos oficiales de la NHL y cálculo de tendencias.
+NHL Radar — descarga diaria de datos oficiales de la NHL y cálculo de tendencias.
 
 Fuentes (APIs públicas oficiales de la NHL, sin clave):
   * https://api-web.nhle.com/v1/standings/now          -> clasificación por equipo
@@ -30,7 +30,7 @@ from pathlib import Path
 WEB = "https://api-web.nhle.com/v1"
 STATS = "https://api.nhle.com/stats/rest/en"
 PAGE = 100  # el endpoint de stats devuelve como máximo 100 filas por página
-UA = {"User-Agent": "condor-nhl-dashboard/1.0", "Accept": "application/json"}
+UA = {"User-Agent": "nhl-radar/1.0", "Accept": "application/json"}
 
 # --------------------------------------------------------------------------- HTTP
 

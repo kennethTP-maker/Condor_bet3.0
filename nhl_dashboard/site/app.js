@@ -1,4 +1,4 @@
-/* Condor NHL Radar — interfaz. Lee data/nhl.json (generado a diario por fetch_nhl.py). */
+/* NHL Radar — interfaz. Lee data/nhl.json (generado a diario por fetch_nhl.py). */
 "use strict";
 
 const DATA_URL = "data/nhl.json";

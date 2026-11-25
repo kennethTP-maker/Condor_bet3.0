@@ -1,4 +1,4 @@
-# Condor NHL Radar
+# NHL Radar
 
 Panel web con **todos los jugadores activos de los 32 equipos de la NHL**, sus estadísticas oficiales partido a partido, tendencias de forma (🔥 En racha, ▲ Mejorando, ● Estable, ▼ Empeorando, ❄ Frío), velas semanales de rendimiento, Índice de Fuerza y probabilidades estimadas de gol / punto para el próximo partido.
 
