@@ -274,3 +274,4 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 
 .edge-pos { color: var(--up); background: color-mix(in srgb, var(--up) 14%, transparent); }
 .edge-neg { color: var(--down); background: color-mix(in srgb, var(--down) 12%, transparent); }
 .edge-flat { color: var(--fg-2); background: var(--line-soft); }
+.vs-gk { font-size: 12px; color: var(--fg-2); padding: 4px 8px; background: var(--panel); border: 1px solid var(--line-soft); border-radius: 8px; margin-bottom: 6px; }

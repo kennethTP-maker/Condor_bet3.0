@@ -485,6 +485,45 @@ def main():
         except Exception as e:
             print("kalshi error:", e, file=sys.stderr)
 
+    # ---- portero probable de cada equipo en cada partido de la semana
+    starts = {}
+    for r in go_rows:
+        if r.get("gamesStarted"):
+            starts.setdefault(r["teamAbbrev"], []).append((r["gameDate"], r["playerId"]))
+    played = {ab: {g[0] for g in t["games"]} for ab, t in teams.items()}
+    gname = {g["id"]: g["name"] for g in goalies}
+    kal_save = {}
+    for pid, kp in ((kal or {}).get("players") or {}).items():
+        if kp.get("save"):
+            kal_save[(kp["game"], int(pid))] = True
+
+    def probable(game, team):
+        on_team = [pid for pid, b in bio.items() if b["pos"] == "G" and b["team"] == team]
+        k = [pid for pid in on_team if (game["id"], pid) in kal_save]
+        if len(k) == 1:
+            return dict(id=k[0], name=gname.get(k[0], f'{bio[k[0]]["first"]} {bio[k[0]]["last"]}'), src="Kalshi", conf="alta")
+        hist = sorted(starts.get(team, []))[-10:]
+        cnt = {}
+        for _, gid in hist:
+            if gid in on_team or not on_team:
+                cnt[gid] = cnt.get(gid, 0) + 1
+        if not cnt:
+            return None
+        order = sorted(cnt, key=lambda g: -cnt[g])
+        starter = order[0]
+        share = cnt[starter] / max(1, sum(cnt.values()))
+        prev = (date.fromisoformat(game["date"]) - timedelta(days=1)).isoformat()
+        if prev in played.get(team, set()) and len(order) > 1:
+            prev_starter = [gid for d, gid in hist if d == prev]
+            if prev_starter and prev_starter[-1] == starter:
+                b = order[1]
+                return dict(id=b, name=gname.get(b, ""), src="Partido ayer: juega el suplente", conf="media")
+        return dict(id=starter, name=gname.get(starter, ""), src=f"Titular en {cnt[starter]} de los últimos {len(hist)}",
+                    conf="alta" if share >= 0.7 else "media" if share >= 0.5 else "baja")
+
+    for g in upcoming:
+        g["goalies"] = {"away": probable(g, g["away"]), "home": probable(g, g["home"])}
+
     out = dict(
         generatedAt=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         season=season, seasonLabel=f"{season[:4]}-{season[6:]}",
