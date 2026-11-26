@@ -175,7 +175,20 @@ function route() {
   destroy(charts);
   const app = $("#app");
   ({ summary: viewSummary, analyst: viewAnalyst, players: viewPlayers, goalies: viewGoalies, teams: viewTeams, games: viewGames, vsgoalie: viewVs, method: viewMethod })[v](app);
+  const view = app.querySelector(".view");
+  if (view && TAB_INTRO[v]) view.insertAdjacentHTML("afterbegin", `<p class="tab-intro">${TAB_INTRO[v]}</p>`);
 }
+/* one line per tab: what you'll find here */
+const TAB_INTRO = {
+  summary: "League overview: the form meter, strongest players, hot and cold players, today's games and top goalies.",
+  analyst: "The 1–2 best picks per team for each game (goal, point or assist), with a rating and the reasons.",
+  players: "Every active skater in one table, with filters, sorting, trends and probabilities.",
+  goalies: "Every goalie with save stats, GSAA, form and a quality vs workload chart.",
+  teams: "Standings by division, last 10 results, streaks, next game and goal differential.",
+  games: "This week's games with the top candidates against the opposing goalie, probable goalies and Kalshi prices.",
+  vsgoalie: "Each player's record against each goalie over 3 seasons, the best duels of the week and a free explorer.",
+  method: "Where the data comes from, how each number is calculated, and a backtest showing how accurate the model is.",
+};
 
 const activeSk = () => D.skaters.filter((s) => s.active);
 const activeGo = () => D.goalies.filter((g) => g.active);
