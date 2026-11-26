@@ -17,7 +17,7 @@ cd nhl_dashboard/site && python -m http.server 8000   # abrir http://localhost:8
 `nhl_dashboard/kalshi.py` lee los mercados abiertos de Kalshi (ganador, goleador, puntos, asistencias, paradas), los empareja con cada jugador por equipo + inicial + apellido y guarda el precio del Sí y el enlace al mercado. `nhl_dashboard/model.py` calcula P(gol)/P(punto) y las calibra con un backtest sin mirar el futuro; la tabla de calibración aparece en Metodología.
 
 ## Actualización cada 24 h
-`.github/workflows/nhl-dashboard.yml` se ejecuta todos los días a las 10:17 UTC (estadísticas) y 20:17 UTC (precios de Kalshi del día): vuelve a descargar los datos, los guarda en el repo y publica la web en GitHub Pages.
+`.github/workflows/nhl-dashboard.yml` se ejecuta a las 10:17 UTC (estadísticas del día anterior) y cada hora de 15:47 a 06:47 UTC durante la franja de partidos (porteros confirmados, precios de Kalshi y partidos que van terminando): vuelve a descargar los datos, los guarda en el repo y publica la web en GitHub Pages.
 
 Para activarlo una sola vez:
 1. Fusiona esta rama en `main` (los workflows programados solo corren desde la rama por defecto).

@@ -522,8 +522,26 @@ def main():
         return dict(id=starter, name=gname.get(starter, ""), src=f"Titular en {cnt[starter]} de los últimos {len(hist)}",
                     conf="alta" if share >= 0.7 else "media" if share >= 0.5 else "baja")
 
+    def confirmed(game):
+        """Partido empezado: el portero que de verdad está/estuvo en la red (boxscore oficial)."""
+        try:
+            b = get_json(f"{WEB}/gamecenter/{game['id']}/boxscore")
+        except Exception:
+            return {}
+        out = {}
+        for side, key in (("away", "awayTeam"), ("home", "homeTeam")):
+            gl = [x for x in (b.get("playerByGameStats", {}).get(key, {}).get("goalies") or [])
+                  if x.get("starter") or (x.get("toi") or "00:00") != "00:00"]
+            gl.sort(key=lambda x: (not x.get("starter"), -(int((x.get("toi") or "0:0").split(":")[0]))))
+            if gl:
+                gid = gl[0]["playerId"]
+                out[side] = dict(id=gid, name=gname.get(gid, gl[0]["name"]["default"]), src="Confirmado: en la red", conf="confirmado")
+        return out
+
     for g in upcoming:
         g["goalies"] = {"away": probable(g, g["away"]), "home": probable(g, g["home"])}
+        if g.get("state") in ("LIVE", "CRIT", "OFF", "FINAL"):
+            g["goalies"].update(confirmed(g))
 
     out = dict(
         generatedAt=datetime.now(timezone.utc).isoformat(timespec="seconds"),
