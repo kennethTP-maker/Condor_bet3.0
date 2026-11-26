@@ -520,15 +520,14 @@ function gameCard(g) {
     const goal = bestFor(ab, opp, "pGoal", 4, g), point = bestFor(ab, opp, "pPoint", 4, g);
     const goalie = probableGoalie(ab, g);
     const oppGk = probableGoalie(opp, g);
-    const pk = (x, k) => { const m = kMarket(x.s.id, k === "pGoal" ? "goal" : "pts", 1); const ok = m && kPlayer(x.s.id).game === g.id;
-      return `<button class="pick" data-p="${x.s.id}" type="button"><span>${esc(x.s.name)} ${x.s.form === "hot" ? "🔥" : x.s.form === "cold" ? "❄" : ""}</span><span style="display:flex;gap:8px;align-items:baseline">${ok ? `<small class="kal-price" title="Precio Sí en Kalshi">K ${cents(m.ask)}</small>` : ""}<b class="num">${pct(x[k])}</b></span></button>`; };
+    const pk = (x, k) => `<button class="pick" data-p="${x.s.id}" type="button"><span>${esc(x.s.name)} ${x.s.form === "hot" ? "🔥" : x.s.form === "cold" ? "❄" : ""}</span><span style="display:flex;gap:8px;align-items:baseline">${kPriceTag(x.s.id, k === "pGoal" ? "goal" : "pts", g.id)}<b class="num">${pct(x[k])}</b></span></button>`;
     const win = kGame(g.id)?.win?.[ab];
     const t = TEAM[ab];
     return `<div style="min-width:0"><div style="display:grid;gap:2px;margin-bottom:6px">${teamBadge(ab)}<span class="dim num" style="font-size:12px">${t ? `${t.w}-${t.l}-${t.otl} · L10 ${t.l10.w}-${t.l10.l}-${t.l10.otl}` : ""}${win && win.ask ? ` · <span class="kal-price" title="Precio de que gane en Kalshi">Gana ${cents(win.ask)}</span>` : ""}</span></div>
       ${oppGk ? `<div class="vs-gk">vs <b>${esc(oppGk.name)}</b> <span class="dim">(${esc(probLabel(opp, g))}${H && !H.error ? "" : " · cargando historial"})</span></div>` : ""}
       <h4>P(gol)</h4>${goal.map((x) => pk(x, "pGoal")).join("")}
       <h4 style="margin-top:8px">P(punto)</h4>${point.map((x) => pk(x, "pPoint")).join("")}
-      ${goalie ? `<h4 style="margin-top:8px">Su portero probable · ${esc(probLabel(ab, g))}</h4><button class="pick" data-g="${goalie.id}" type="button"><span>${esc(goalie.name)} ${chipMini(goalie.form)}</span><b class="num">${f3(goalie.svPct)}</b></button>` : ""}</div>`;
+      ${goalie ? `<h4 style="margin-top:8px">${probableInfo(ab, g)?.conf === "confirmado" ? "Su portero · confirmado en la red" : `Su portero probable · ${esc(probLabel(ab, g))}`}</h4><button class="pick" data-g="${goalie.id}" type="button"><span>${esc(goalie.name)} ${chipMini(goalie.form)}</span><b class="num">${f3(goalie.svPct)}</b></button>` : ""}</div>`;
   };
   const live = g.state !== "FUT" && g.state !== "PRE";
   return `<article class="game"><div class="game-h">${teamBadge(g.away, true)}<span class="vs">@</span>${teamBadge(g.home, true)}
@@ -973,6 +972,7 @@ function vsTable(team, gk) {
 }
 
 function kCell(s, kind, ours) {
+  if (kLive(s.id)) return kPriceTag(s.id, kind) || `<span class="dim">–</span>`;
   const m = kMarket(s.id, kind, 1);
   if (!m || !m.ask) return `<span class="dim">–</span>`;
   const gid = kPlayer(s.id).game;
@@ -1007,6 +1007,16 @@ function kPlayer(pid) {
   return g && !["FUT", "PRE"].includes(g.state) ? null : p;
 }
 function kMarket(pid, kind, line = 1) { const p = kPlayer(pid); return p && p[kind] ? p[kind].find((m) => m.line === line) || null : null; }
+/* para MOSTRAR precios: también los de partidos ya empezados (precio en juego al momento de leer Kalshi) */
+function kPlayerAny(pid) { return KAL().players[pid] || null; }
+function kMarketAny(pid, kind, line = 1) { const p = kPlayerAny(pid); return p && p[kind] ? p[kind].find((m) => m.line === line) || null : null; }
+function kLive(pid) { const p = kPlayerAny(pid); const g = p && D.schedule.find((x) => x.id === p.game); return !!(g && !["FUT", "PRE"].includes(g.state)); }
+function kPriceTag(pid, kind, gid) {
+  const p = kPlayerAny(pid), m = kMarketAny(pid, kind, 1);
+  if (!m || !p || (gid && p.game !== gid) || m.ask == null) return "";
+  const live = kLive(pid);
+  return `<small class="kal-price${live ? " kal-live" : ""}" title="${live ? "Precio del Sí en Kalshi con el partido en juego" : "Precio del Sí en Kalshi antes del partido"} · ${kalshiFetchedLbl()}">${live ? "● " : ""}K ${cents(m.ask)}</small>`;
+}
 function kUrl(gid, kind = "game") { const g = kGame(gid); return g ? g.links[kind] : null; }
 function kalshiLink(url) {
   return url ? `<a class="kal-link" href="${esc(url)}" target="_blank" rel="noopener" title="Abrir el partido en Kalshi">Kalshi</a>` : "";
@@ -1046,22 +1056,25 @@ function playerKalshiBlock(s) {
   const t = TEAM[s.team];
   const nx = t && t.next;
   if (!nx) return "";
-  const kp = kPlayer(s.id);
-  const sameGame = kp && kp.game === nx.id;
-  const gLink = kUrl(nx.id, "game");
+  const cg = currentGame(s.team);
+  const gameId = cg ? cg.id : nx.id;
+  const kp = kPlayerAny(s.id);
+  const sameGame = kp && kp.game === gameId;
+  const live = kLive(s.id);
+  const gLink = kUrl(gameId, "game");
   if (!sameGame) {
     return `<div class="kal-box"><div>${kalshiLink(gLink)} <span class="dim">· los precios del jugador aparecen cuando Kalshi abre sus mercados (normalmente el mismo día).</span></div></div>`;
   }
   const pr = bestProb(s, nx.opp);
   const rows = [
-    ["Marca 1+ gol", kMarket(s.id, "goal", 1), pr.pGoal, "goal"],
-    ["Marca 2+ goles", kMarket(s.id, "goal", 2), null, "goal"],
-    ["1+ punto", kMarket(s.id, "pts", 1), pr.pPoint, "pts"],
-    ["2+ puntos", kMarket(s.id, "pts", 2), null, "pts"],
-    ["1+ asistencia", kMarket(s.id, "ast", 1), null, "ast"],
-  ].filter((r) => r[1]);
+    ["Marca 1+ gol", kMarketAny(s.id, "goal", 1), pr.pGoal, "goal"],
+    ["Marca 2+ goles", kMarketAny(s.id, "goal", 2), null, "goal"],
+    ["1+ punto", kMarketAny(s.id, "pts", 1), pr.pPoint, "pts"],
+    ["2+ puntos", kMarketAny(s.id, "pts", 2), null, "pts"],
+    ["1+ asistencia", kMarketAny(s.id, "ast", 1), pr.pAssist ?? null, "ast"],
+  ].filter((r) => r[1]).map((r) => (live ? [r[0], r[1], null, r[3]] : r));
   return `<div class="kal-box" style="display:grid;gap:8px">
-    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:baseline"><b>Mercados</b> ${kalshiLink(gLink)}<span class="dim" style="font-size:12px">precios del ${kalshiFetchedLbl()} · el enlace abre el precio en vivo</span></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:baseline"><b>Mercados</b> ${kalshiLink(gLink)}<span class="dim" style="font-size:12px">${live ? `<b class="kal-live">● partido en juego</b> · precios del ${kalshiFetchedLbl()}, no comparables con nuestra probabilidad previa` : `precios del ${kalshiFetchedLbl()} · el enlace abre el precio en vivo`}</span></div>
     <div class="tbl-wrap"><table class="tbl" style="min-width:560px"><thead><tr><th class="l">Mercado</th><th>Comprar Sí</th><th>Vender Sí</th><th title="Incluye el portero rival probable y su historial contra él">Nuestra prob.*</th><th>Diferencia</th></tr></thead>
     <tbody>${rows.map(([lbl, m, ours, kind]) => `<tr style="cursor:default"><td class="l">${lbl}</td><td><b>${cents(m.ask)}</b></td><td>${cents(m.bid)}</td><td>${ours != null ? pct(ours) : `<span class="dim">–</span>`}</td><td>${ours != null ? edgeCell(ours, m.ask) : `<span class="dim">–</span>`}</td></tr>`).join("")}</tbody></table></div>
     <div class="dim" style="font-size:11.5px">* Ajustada al portero rival probable y al historial del jugador contra él, por eso puede diferir un poco de los anillos de arriba.</div>
