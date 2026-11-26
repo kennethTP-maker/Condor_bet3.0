@@ -290,7 +290,7 @@ def main():
                         link=("https://www.nhl.com" + g["gameCenterLink"]) if g.get("gameCenterLink") else None)
             upcoming.append(item)
             for me, opp, home in ((a, h, False), (h, a, True)):
-                if me in teams and teams[me]["next"] is None and g.get("gameState") in ("FUT", "PRE"):
+                if me in teams and teams[me]["next"] is None and g.get("gameState") in ("FUT", "PRE", "LIVE", "CRIT"):
                     teams[me]["next"] = dict(date=day["date"], start=g.get("startTimeUTC"), opp=opp, home=home, id=g["id"])
 
     # ---- stats por partido

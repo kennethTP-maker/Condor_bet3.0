@@ -865,7 +865,7 @@ function deltaPct(p, base) {
 function viewVs(app) {
   if (!H) { app.innerHTML = `<div class="loading">Cargando historial jugador vs portero…</div>`; return; }
   if (H.error) { app.innerHTML = `<section class="panel"><div class="empty">No se encontró <code>${H2H_URL}</code>. Ejecuta <code>python nhl_dashboard/fetch_nhl.py</code>.</div></section>`; return; }
-  const upcoming = D.schedule.filter((g) => g.state === "FUT" || g.state === "PRE");
+  const upcoming = D.schedule.filter((g) => ["FUT", "PRE", "LIVE", "CRIT"].includes(g.state) && (!g.start || Date.now() < new Date(g.start).getTime() + 4 * 3600e3));
   const games = upcoming.length ? upcoming : D.schedule;
   if (vs.game == null || !games.find((g) => g.id === vs.game)) vs.game = games[0]?.id ?? null;
   const game = games.find((g) => g.id === vs.game);
@@ -1006,7 +1006,20 @@ function kalshiLink(url) {
   return url ? `<a class="kal-link" href="${esc(url)}" target="_blank" rel="noopener" title="Abrir el partido en Kalshi">Kalshi</a>` : "";
 }
 /* enlace al próximo partido del equipo en Kalshi (mismo enlace para todos sus jugadores) */
-function teamKalshiUrl(team) { const t = TEAM[team]; return t && t.next ? kUrl(t.next.id, "game") : null; }
+/* partido actual del equipo: el que está en juego ahora o, si no, el siguiente.
+   Se calcula con la hora real del visitante, así sigue siendo correcto aunque los datos tengan horas. */
+function currentGame(team) {
+  const now = Date.now();
+  return D.schedule.filter((g) => (g.away === team || g.home === team) && g.start)
+    .sort((a, b) => a.start.localeCompare(b.start))
+    .find((g) => now < new Date(g.start).getTime() + 4 * 3600e3) || null;
+}
+function teamKalshiUrl(team) {
+  const g = currentGame(team);
+  if (g) return kUrl(g.id, "game");
+  const t = TEAM[team];
+  return t && t.next ? kUrl(t.next.id, "game") : null;
+}
 function kLink(team) { return kalshiLink(teamKalshiUrl(team)); }
 const cents = (x) => (x == null ? "–" : Math.round(x * 100) + "¢");
 function edgeCell(ours, ask) {
