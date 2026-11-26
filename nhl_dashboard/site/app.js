@@ -209,7 +209,8 @@ function viewSummary(app) {
     ["down", "Declining", "Recent average falling versus their season.", pick("down", (a, b) => a.trend - b.trend)],
     ["cold", "Cold", "Sharp drop, or a productive player with 5+ games without a point.", pick("cold", (a, b) => a.trend - b.trend)],
   ];
-  const today = D.schedule.filter((g) => g.date === D.schedule[0]?.date);
+  const nextDate = slateDates()[0] || D.schedule[0]?.date;
+  const today = D.schedule.filter((g) => g.date === nextDate);
   const goalieTop = activeGo().filter((g) => g.gp >= 5).slice(0, 5);
 
   app.innerHTML = `<div class="view">
@@ -218,7 +219,7 @@ function viewSummary(app) {
       <div class="kpi"><div class="lbl">Games analyzed</div><div class="val">${D.gamesCounted}</div><div class="hint">Season ${D.seasonLabel}</div></div>
       <div class="kpi"><div class="lbl">Goals per team-game</div><div class="val">${f2(D.league.goalsPerTeamGame)}</div><div class="hint">League average</div></div>
       <div class="kpi"><div class="lbl">League save %</div><div class="val">${f3(D.league.svPct)}</div><div class="hint">Shooting ${pct(D.league.shPct)}</div></div>
-      <div class="kpi"><div class="lbl">Games today</div><div class="val">${today.length}</div><div class="hint">${today[0] ? dLong(today[0].date) : "No games"}</div></div>
+      <div class="kpi"><div class="lbl">Next games</div><div class="val">${today.length}</div><div class="hint">${today[0] ? dLong(today[0].date) : "No games"}</div></div>
     </section>
 
     <section class="panel">
@@ -255,7 +256,7 @@ function viewSummary(app) {
 
     <div class="grid g2">
       <section class="panel">
-        <div class="panel-h"><h2>Today's games</h2><span class="sub">Best goal candidate per team</span><a class="right" href="#games" style="font-size:12px">Full week →</a></div>
+        <div class="panel-h"><h2>Next games</h2><span class="sub">Best goal candidate per team</span><a class="right" href="#games" style="font-size:12px">Full week →</a></div>
         <div class="panel-b">${today.length ? `<div class="tlist">${today.map(todayRow).join("")}</div>` : `<div class="empty">No games scheduled today.</div>`}</div>
       </section>
       <section class="panel">
