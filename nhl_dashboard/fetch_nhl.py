@@ -392,9 +392,10 @@ def main():
             opp_f = max(0.8, min(1.2, opp_f ** 0.6))
         toi_f = max(0.85, min(1.15, (toi5 / toi) if toi else 1.0))
         lam_g, lam_p, sog_rate, sh_pct = model.lambdas(gs, pp[model.grp(p["pos"])], priors.get(pid), opp_f, toi_f)
-        pGoal, pPoint = model.prob(lam_g, calib["cg"]), model.prob(lam_p, calib["cp"])
+        pGoal, pPoint = model.prob(lam_g, calib["cg"], calib["ag"]), model.prob(lam_p, calib["cp"], calib["ap"])
+        pAssist = model.prob(model.assist_lambda(gs, pp[model.grp(p["pos"])], opp_f, toi_f), calib["ca"], calib["aa"])
         proj = dict(g=r2(lam_g, 3), p=r2(lam_p, 3), sog=r2(sog_rate, 2), sh=r2(sh_pct, 4),
-                    pGoal=r2(pGoal, 3), pPoint=r2(pPoint, 3),
+                    pGoal=r2(pGoal, 3), pPoint=r2(pPoint, 3), pAssist=r2(pAssist, 3),
                     oppF=r2(opp_f, 3))
 
         candle_deltas = [g["imp"] - base[pos_group(p["pos"])] for g in gs]

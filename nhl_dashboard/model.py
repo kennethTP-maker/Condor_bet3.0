@@ -28,7 +28,7 @@ def pos_params(per: dict) -> dict:
         n = len(games) or 1
         sog = sum(g["sog"] for g in games)
         out[gk] = dict(sh=(sum(g["g"] for g in games) / sog) if sog else 0.1,
-                       sog=sog / n, pts=sum(g["p"] for g in games) / n)
+                       sog=sog / n, pts=sum(g["p"] for g in games) / n, ast=sum(g["a"] for g in games) / n)
     return out
 
 
@@ -64,8 +64,16 @@ def lambdas(gs: list[dict], pp: dict, prior: list | None, opp_f=1.0, toi_f=1.0):
     return sog_rate * sh * opp_f * toi_f, pts_rate * opp_f * toi_f, sog_rate * toi_f, sh
 
 
-def prob(lam, c):
-    return 1.0 - math.exp(-c * max(lam, 0.0))
+def assist_lambda(gs: list[dict], pp: dict, opp_f=1.0, toi_f=1.0):
+    n = len(gs)
+    a_season = (sum(g["a"] for g in gs) + K_PTS * pp["ast"]) / (n + K_PTS)
+    rate = 0.6 * a_season + 0.25 * _mean([g["a"] for g in gs[-10:]] or [a_season]) + 0.15 * _mean([g["a"] for g in gs[-5:]] or [a_season])
+    return rate * opp_f * toi_f
+
+
+def prob(lam, c, a=0.0):
+    """P(1+) = 1 − exp(−(a + c·λ)); a y c salen del backtest."""
+    return 1.0 - math.exp(-max(a + c * max(lam, 0.0), 1e-4))
 
 
 def calibrate(per: dict, pp: dict, priors: dict, min_prior_games=3):
@@ -76,35 +84,39 @@ def calibrate(per: dict, pp: dict, priors: dict, min_prior_games=3):
         par = pp[grp(p["pos"])]
         for i in range(min_prior_games, len(gs)):
             lg, lp, _, _ = lambdas(gs[:i], par, priors.get(pid))
-            rows.append((lg, lp, 1 if gs[i]["g"] > 0 else 0, 1 if gs[i]["p"] > 0 else 0))
+            la = assist_lambda(gs[:i], par)
+            rows.append((lg, lp, 1 if gs[i]["g"] > 0 else 0, 1 if gs[i]["p"] > 0 else 0, la, 1 if gs[i]["a"] > 0 else 0))
     if len(rows) < 500:
-        return dict(cg=1.0, cp=1.0, n=len(rows), goal=[], point=[], brierGoal=None, brierPoint=None)
+        return dict(cg=1.0, cp=1.0, ca=1.0, ag=0.0, ap=0.0, aa=0.0, n=len(rows), goal=[], point=[], assist=[], brierGoal=None, brierPoint=None, brierAssist=None)
 
     def fit(idx_l, idx_y):
         best = None
-        for c100 in range(40, 161, 2):
-            c = c100 / 100
-            ll = 0.0
-            for r in rows:
-                q = min(max(prob(r[idx_l], c), 1e-6), 1 - 1e-6)
-                ll -= math.log(q) if r[idx_y] else math.log(1 - q)
-            if best is None or ll < best[0]:
-                best = (ll, c)
-        return best[1]
+        for a100 in range(-8, 17, 2):
+            a = a100 / 100
+            for c100 in range(40, 141, 4):
+                c = c100 / 100
+                ll = 0.0
+                for r in rows:
+                    q = min(max(prob(r[idx_l], c, a), 1e-6), 1 - 1e-6)
+                    ll -= math.log(q) if r[idx_y] else math.log(1 - q)
+                if best is None or ll < best[0]:
+                    best = (ll, c, a)
+        return best[1], best[2]
 
-    cg, cp = fit(0, 2), fit(1, 3)
+    (cg, ag), (cp, ap), (ca, aa) = fit(0, 2), fit(1, 3), fit(4, 5)
 
-    def table(idx_l, idx_y, c, edges):
+    def table(idx_l, idx_y, c, edges, off=0.0):
         out = []
         for lo, hi in zip(edges, edges[1:]):
-            sel = [r for r in rows if lo <= prob(r[idx_l], c) < hi]
+            sel = [r for r in rows if lo <= prob(r[idx_l], c, off) < hi]
             if len(sel) >= 30:
                 out.append([round(lo, 2), round(hi, 2), len(sel),
-                            round(_mean([prob(r[idx_l], c) for r in sel]), 3), round(_mean([r[idx_y] for r in sel]), 3)])
+                            round(_mean([prob(r[idx_l], c, off) for r in sel]), 3), round(_mean([r[idx_y] for r in sel]), 3)])
         return out
 
-    brier = lambda il, iy, c: round(_mean([(prob(r[il], c) - r[iy]) ** 2 for r in rows]), 4)
-    return dict(cg=cg, cp=cp, n=len(rows),
-                goal=table(0, 2, cg, [0, .05, .1, .15, .2, .25, .3, .35, .4, .5, 1.01]),
-                point=table(1, 3, cp, [0, .2, .3, .4, .5, .6, .7, .8, 1.01]),
-                brierGoal=brier(0, 2, cg), brierPoint=brier(1, 3, cp))
+    brier = lambda il, iy, c, off: round(_mean([(prob(r[il], c, off) - r[iy]) ** 2 for r in rows]), 4)
+    return dict(cg=cg, ag=ag, cp=cp, ap=ap, ca=ca, aa=aa, n=len(rows),
+                goal=table(0, 2, cg, [0, .05, .1, .15, .2, .25, .3, .35, .4, .5, 1.01], ag),
+                point=table(1, 3, cp, [0, .2, .3, .4, .5, .6, .7, .8, 1.01], ap),
+                assist=table(4, 5, ca, [0, .1, .2, .3, .4, .5, .6, 1.01], aa),
+                brierGoal=brier(0, 2, cg, ag), brierPoint=brier(1, 3, cp, ap), brierAssist=brier(4, 5, ca, aa))

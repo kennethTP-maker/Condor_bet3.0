@@ -10,7 +10,7 @@ const FORM = {
   cold: { label: "Frío",       icon: "❄",  cls: "f-cold", v: "--cold" },
 };
 const POS = { C: "C", L: "LW", R: "RW", D: "D", G: "G" };
-const VIEWS = ["resumen", "jugadores", "porteros", "equipos", "partidos", "vsportero", "metodo"];
+const VIEWS = ["resumen", "analista", "jugadores", "porteros", "equipos", "partidos", "vsportero", "metodo"];
 
 let D = null;               // dataset
 let TEAM = {};              // abbr -> team
@@ -174,7 +174,7 @@ function route() {
   document.querySelectorAll(".tab").forEach((a) => a.setAttribute("aria-current", a.getAttribute("href") === "#" + v ? "page" : "false"));
   destroy(charts);
   const app = $("#app");
-  ({ resumen: viewSummary, jugadores: viewPlayers, porteros: viewGoalies, equipos: viewTeams, partidos: viewGames, vsportero: viewVs, metodo: viewMethod })[v](app);
+  ({ resumen: viewSummary, analista: viewAnalyst, jugadores: viewPlayers, porteros: viewGoalies, equipos: viewTeams, partidos: viewGames, vsportero: viewVs, metodo: viewMethod })[v](app);
 }
 
 const activeSk = () => D.skaters.filter((s) => s.active);
@@ -307,7 +307,7 @@ function projFor(s, opp) {
   if (opp && TEAM[opp]) f = Math.max(0.8, Math.min(1.2, Math.pow((TEAM[opp].gapg || lg) / lg, 0.6)));
   const r = f / (s.proj.oppF || 1);
   const scaleP = (p) => 1 - Math.pow(1 - Math.min(p, 0.99), r);
-  return { pGoal: scaleP(s.proj.pGoal), pPoint: scaleP(s.proj.pPoint), g: s.proj.g * r, p: s.proj.p * r, sog: s.proj.sog, oppF: f };
+  return { pGoal: scaleP(s.proj.pGoal), pPoint: scaleP(s.proj.pPoint), pAssist: scaleP(s.proj.pAssist ?? 0), g: s.proj.g * r, p: s.proj.p * r, sog: s.proj.sog, oppF: f };
 }
 function bestFor(team, opp, key, n, game) {
   const gk = H && !H.error ? probableGoalie(opp, game) : null;
@@ -585,7 +585,7 @@ function viewMethod(app) {
     <p>Si el equipo de un jugador ya jugó partidos después del último partido de ese jugador, se marca con ⚠ y el número de partidos que se perdió. Suele indicar lesión, enfermedad o que no fue alineado. Con 2 o más partidos de ausencia, el jugador no aparece en las listas de candidatos de la semana.</p>
     <h3>Probabilidades P(gol) y P(punto)</h3>
     <p><b>Goles esperados</b> = tiros por partido (50% temporada, 30% últimos 10, 20% últimos 5; contraído hacia la media de su posición) × % de tiro del jugador (sus tiros y goles de las temporadas anteriores más la actual, contraído con 150 tiros hacia la media de su posición: delanteros ${D.model ? pct(D.model.pos.F.sh) : "–"}, defensas ${D.model ? pct(D.model.pos.D.sh) : "–"}) × factor rival (goles que concede, ±20% máx.) × cambio reciente de minutos.</p>
-    <p><b>Puntos esperados</b> = puntos por partido (contraído con 8 partidos hacia su posición) mezclado con los últimos 10 y 5 partidos, × los mismos factores. La probabilidad es <code>1 − e^(−c·esperado)</code>, con <code>c</code> ajustado por backtest.</p>
+    <p><b>Puntos esperados</b> = puntos por partido (contraído con 8 partidos hacia su posición) mezclado con los últimos 10 y 5 partidos, × los mismos factores. <b>Asistencias esperadas</b> se calculan igual con sus asistencias por partido. La probabilidad es <code>1 − e^(−(a + c·esperado))</code>, con <code>a</code> y <code>c</code> ajustados por backtest para cada mercado.</p>
     ${calibTable()}
     <p><b>Importante:</b> son estimaciones estadísticas para ordenar candidatos, no garantías. No tienen en cuenta lesiones del día, alineaciones confirmadas ni cuotas. Valídalas siempre antes de apostar.</p>
   </div></section></div>`;
@@ -598,8 +598,8 @@ function calibTable() {
     <tbody>${rows.map((r) => `<tr style="cursor:default"><td class="l">${Math.round(r[0] * 100)}–${Math.min(100, Math.round(r[1] * 100))}%</td><td>${r[2].toLocaleString("es")}</td><td>${pct(r[3])}</td><td><b>${pct(r[4])}</b></td><td class="${Math.abs(r[4] - r[3]) <= 0.03 ? "pos" : "neg"}">${sgn((r[4] - r[3]) * 100, 1)} pts</td></tr>`).join("")}</tbody></table></div>`;
   return `<h3>¿Qué tan preciso es? (backtest)</h3>
     <p>Se repitió el cálculo para cada partido de esta temporada usando <b>solo los partidos anteriores</b> a ese día (${c.n.toLocaleString("es")} predicciones) y se comparó con lo que pasó. Si el modelo está bien calibrado, la columna "Ocurrió de verdad" se parece a la "Media predicha".</p>
-    ${tb(c.goal, "P(gol)")}${tb(c.point, "P(punto)")}
-    <p class="dim">Puntuación Brier (más bajo = mejor): gol ${c.brierGoal}, punto ${c.brierPoint}. Coeficientes ajustados: c gol = ${c.cg}, c punto = ${c.cp}.</p>`;
+    ${tb(c.goal, "P(gol)")}${tb(c.point, "P(punto)")}${c.assist && c.assist.length ? tb(c.assist, "P(asistencia)") : ""}
+    <p class="dim">Puntuación Brier (más bajo = mejor): gol ${c.brierGoal}, punto ${c.brierPoint}${c.brierAssist != null ? `, asistencia ${c.brierAssist}` : ""}.</p>`;
 }
 
 /* ------------------------------------------------------------------ MODALES */
@@ -780,7 +780,7 @@ async function loadH2H() {
     for (const [sid, rows] of Object.entries(H.pairs)) for (const row of rows) H_IDX.set(sid + ":" + row[0], row);
   } catch (e) { H = { error: true, pairs: {}, shooters: {}, goalies: {}, seasons: [], games: 0 }; H_IDX = new Map(); }
   const w = hWaiters; hWaiters = []; w.forEach((f) => f());
-  if (["vsportero", "partidos", "resumen", ""].includes((location.hash || "").slice(1)) && $("#modal").hidden) route();
+  if (["vsportero", "partidos", "resumen", "analista", ""].includes((location.hash || "").slice(1)) && $("#modal").hidden) route();
 }
 function whenH2H(f) { if (H) f(); else hWaiters.push(f); }
 
@@ -814,11 +814,11 @@ function matchup(s, gid) {
   const mP = clamp(Math.sqrt(gf.f) * pairP, 0.7, 1.45);
   // probabilidad base sin ajuste de rival
   const o = s.proj.oppF || 1;
-  const p0g = scaleP(s.proj.pGoal, 1 / o), p0p = scaleP(s.proj.pPoint, 1 / o);
+  const p0g = scaleP(s.proj.pGoal, 1 / o), p0p = scaleP(s.proj.pPoint, 1 / o), p0a = scaleP(s.proj.pAssist ?? 0, 1 / o);
   return {
     s, gid, gp, sog, g, a, p: g + a, gpC, sogC, gC, xg, shVs: sog ? g / sog : null, shp,
     pairG, pairP, gf: gf.f, mG, mP,
-    pGoal: scaleP(p0g, mG), pPoint: scaleP(p0p, mP), pGoalBase: s.proj.pGoal, pPointBase: s.proj.pPoint,
+    pGoal: scaleP(p0g, mG), pPoint: scaleP(p0p, mP), pAssist: scaleP(p0a, mP), pGoalBase: s.proj.pGoal, pPointBase: s.proj.pPoint,
     conf: sog >= 25 ? "alta" : sog >= 8 ? "media" : "baja",
   };
 }
@@ -999,7 +999,13 @@ function playerVsBlock(s) {
 /* ------------------------------------------------------------------ KALSHI */
 const KAL = () => D.kalshi || { games: {}, players: {} };
 function kGame(gid) { return KAL().games[gid] || null; }
-function kPlayer(pid) { return KAL().players[pid] || null; }
+/* precios de jugador solo de partidos que no habían empezado al leer Kalshi (en juego el precio ya no es comparable) */
+function kPlayer(pid) {
+  const p = KAL().players[pid];
+  if (!p) return null;
+  const g = D.schedule.find((x) => x.id === p.game);
+  return g && !["FUT", "PRE"].includes(g.state) ? null : p;
+}
 function kMarket(pid, kind, line = 1) { const p = kPlayer(pid); return p && p[kind] ? p[kind].find((m) => m.line === line) || null : null; }
 function kUrl(gid, kind = "game") { const g = kGame(gid); return g ? g.links[kind] : null; }
 function kalshiLink(url) {
@@ -1096,6 +1102,127 @@ function kalshiValuePanel() {
       <td class="pct">${pct(x.ours)}</td><td><b>${cents(x.m.ask)}</b></td><td>${edgeCell(x.ours, x.m.ask)}</td><td class="l">${kalshiLink(kUrl(x.g.id, "game"))}</td></tr>`).join("") || `<tr><td colspan="6"><div class="empty">Sin mercados abiertos.</div></td></tr>`}</tbody></table></div></div></section>`;
   return `<div class="grid g2">${list("Valor vs Kalshi · 1+ gol", kalshiValue("pGoal"), "goal")}${list("Valor vs Kalshi · 1+ punto", kalshiValue("pPoint"), "pts")}</div>
     <p class="chart-note" style="margin:-8px 0 0">Diferencia = nuestra probabilidad − precio de compra del Sí. <span class="edge edge-pos">+4 pts o más</span> nuestro modelo ve más probabilidad que el mercado; <span class="edge edge-neg">−4 o menos</span> el mercado ve más. No incluye comisiones de Kalshi ni alineaciones confirmadas.</p>`;
+}
+
+/* ------------------------------------------------------------------ ANALISTA */
+const MARKETS = {
+  goal:   { label: "Gol",        long: "Marca 1+ gol",        key: "pGoal",   k: "goal", floor: 0.18, base: 0.20, cls: "mk-goal" },
+  point:  { label: "Punto",      long: "1+ punto",            key: "pPoint",  k: "pts",  floor: 0.40, base: 0.45, cls: "mk-point" },
+  assist: { label: "Asistencia", long: "1+ asistencia",       key: "pAssist", k: "ast",  floor: 0.28, base: 0.32, cls: "mk-assist" },
+};
+const ana = { date: null };
+
+function slateDates() {
+  const now = Date.now();
+  return [...new Set(D.schedule.filter((g) => !g.start || now < new Date(g.start).getTime() + 4 * 3600e3).map((g) => g.date))].sort();
+}
+
+/* evalúa un jugador en un partido: mejor mercado, puntuación y razones */
+function analyzePlayer(s, g, opp) {
+  const gk = probableGoalie(opp, g);
+  const m = H && !H.error && gk ? matchup(s, gk.id) : { s, ...projFor(s, opp), sog: 0 };
+  const kp = kPlayer(s.id);
+  const sameGame = kp && kp.game === g.id;
+  const formBonus = { hot: 3, up: 1.5, flat: 0, down: -2, cold: -4 }[s.form] || 0;
+  let best = null;
+  for (const [id, mk] of Object.entries(MARKETS)) {
+    const p = m[mk.key];
+    if (p == null || p < mk.floor) continue;
+    const km = sameGame ? kMarket(s.id, mk.k, 1) : null;
+    const ask = km && km.ask ? km.ask : null;
+    const edge = ask != null ? p - ask : null;
+    if (ask != null && edge < 0.02) continue;          // con precio: solo si hay valor
+    let score = ask != null ? edge * 100 + p * 8 : Math.min(8, (p - mk.base) * 25);
+    score += formBonus;
+    if (m.conf === "alta" && m.pairG > 1.1 && id === "goal") score += 2;
+    if (m.gf > 1.06) score += 1.5;
+    if (m.gf < 0.94) score -= 1.5;
+    if (!best || score > best.score) best = { id, mk, p, ask, edge, score };
+  }
+  if (!best) return null;
+  return { s, g, opp, gk, m, ...best, reasons: reasonsFor(s, m, gk, best) };
+}
+
+function reasonsFor(s, m, gk, b) {
+  const r = [];
+  if (b.ask != null) r.push(`<b>Valor:</b> nuestro ${pct(b.p)} frente a ${cents(b.ask)} en Kalshi (${b.edge >= 0 ? "+" : ""}${Math.round(b.edge * 100)} pts).`);
+  else r.push(`<b>Probabilidad:</b> ${pct(b.p)} para ${b.mk.long.toLowerCase()} (Kalshi aún sin precio para este jugador).`);
+  if (s.form === "hot") r.push(`🔥 En racha${s.pStreak >= 3 ? `: ${s.pStreak} partidos seguidos con punto` : ""} · L5 ${s.l5.g}G ${s.l5.a}A.`);
+  else if (s.form === "up") r.push(`▲ Mejorando: rinde por encima de su media (L5 ${s.l5.g}G ${s.l5.a}A).`);
+  else r.push(`Últimos 10: ${s.l10.g}G ${s.l10.a}A, ${s.l10.sog} tiros.`);
+  if (gk && m.sog >= 5) r.push(`Contra ${esc(gk.name)}: ${m.g}G ${m.a}A en ${m.sog} tiros (${m.gp} PJ)${m.pairG >= 1.1 ? " · historial favorable" : m.pairG <= 0.9 ? " · historial difícil" : ""}.`);
+  if (gk && m.gf && H && !H.error) {
+    const sv3 = goalieFactor(gk.id).sv;
+    const svTxt = `SV% ${sv3 != null ? f3(sv3) : "–"} en 3 temporadas, ${f3(gk.svPct)} esta temporada`;
+    if (m.gf >= 1.05) r.push(`Portero rival ${esc(gk.name)} concede más que la media (${svTxt}).`);
+    else if (m.gf <= 0.95) r.push(`Ojo: ${esc(gk.name)} es un portero por encima de la media (${svTxt}).`);
+  }
+  if (s.toi5 - s.toi >= 1) r.push(`Más minutos: ${mmss(s.toi5)} en los últimos 5 (+${mmss(s.toi5 - s.toi)}).`);
+  if (s.gp && s.ppp / s.gp >= 0.25 && b.id !== "goal") r.push(`Juega power play: ${s.ppp} puntos con ventaja numérica.`);
+  if (b.id === "goal" && s.gp && s.sog / s.gp >= 3) r.push(`Volumen de tiro alto: ${f1(s.sog / s.gp)} tiros por partido.`);
+  return r.slice(0, 5);
+}
+
+function rating(x) {
+  if (x.ask != null) return x.edge >= 0.06 ? ["Fuerte", "rt-strong"] : x.edge >= 0.035 ? ["Buena", "rt-good"] : ["Moderada", "rt-mod"];
+  return x.score >= 6 ? ["Buena", "rt-good"] : ["Moderada", "rt-mod"];
+}
+
+function teamPicks(team, opp, g) {
+  const cands = activeSk().filter((s) => s.team === team && s.gp >= 8 && s.log.length && missedGames(s) === 0 && daysSince(s.log[s.log.length - 1][0]) <= 12)
+    .map((s) => analyzePlayer(s, g, opp)).filter(Boolean).sort((a, b) => b.score - a.score);
+  if (!cands.length) return [];
+  const picks = [cands[0]];
+  const second = cands[1];
+  if (second && (second.ask != null ? second.edge >= 0.03 : second.score >= 3)) picks.push(second);
+  return picks;
+}
+
+function pickCard(x) {
+  const [rl, rc] = rating(x);
+  return `<article class="pickc" data-p="${x.s.id}">
+    <div class="pickc-h">${avatar(x.s)}<div style="min-width:0"><div class="nm">${esc(x.s.name)} ${kLink(x.s.team)}</div>
+      <div class="dim" style="font-size:12px">${POS[x.s.pos] || x.s.pos} · ${x.s.gp} PJ · ${x.s.g}G ${x.s.a}A ${x.s.p}P ${chipMini(x.s.form)}</div></div>
+      <span class="rt ${rc}">${rl}</span></div>
+    <div class="pickc-m"><span class="mk ${x.mk.cls}">${x.mk.long}</span>
+      <span class="pickc-p num">${pct(x.p)}</span>
+      ${x.ask != null ? `<span class="dim num" style="font-size:12px">Kalshi ${cents(x.ask)}</span> ${edgeCell(x.p, x.ask)}` : `<span class="dim" style="font-size:12px">sin precio aún</span>`}</div>
+    <ul class="why">${x.reasons.map((t) => `<li>${t}</li>`).join("")}</ul>
+  </article>`;
+}
+
+function viewAnalyst(app) {
+  const dates = slateDates();
+  if (!ana.date || !dates.includes(ana.date)) ana.date = dates[0] || null;
+  const now = Date.now();
+  const dayGames = D.schedule.filter((g) => g.date === ana.date);
+  const started = dayGames.filter((g) => g.start && now >= new Date(g.start).getTime());
+  const games = dayGames.filter((g) => !started.includes(g));
+  const all = [];
+  const blocks = games.map((g) => {
+    const a = teamPicks(g.away, g.home, g), h = teamPicks(g.home, g.away, g);
+    all.push(...a, ...h);
+    const side = (team, opp, picks) => `<div class="ana-side"><div class="ana-team">${teamBadge(team, true)} <span class="dim" style="font-size:12px">vs ${esc(probableGoalie(opp, g)?.name || opp)}</span></div>
+      ${picks.length ? picks.map(pickCard).join("") : `<div class="empty" style="padding:14px">Sin selección con valor: ningún jugador supera al precio del mercado o a nuestros mínimos.</div>`}</div>`;
+    return `<section class="panel"><div class="panel-h"><h3>${g.away} @ ${g.home}</h3><span class="sub">${g.start ? tLocal(g.start) : ""} · ${esc(g.venue || "")}</span><span class="right" style="display:flex;gap:12px">${kalshiLink(kUrl(g.id, "game"))}${nhlLink(g.link || gameUrl(g.away, g.home, false, g.date, g.id), "NHL.com")}</span></div>
+      <div class="panel-b"><div class="ana-grid">${side(g.away, g.home, a)}${side(g.home, g.away, h)}</div></div></section>`;
+  });
+  const top = all.slice().sort((x, y) => y.score - x.score).slice(0, 5);
+  app.innerHTML = `<div class="view">
+    <section class="panel"><div class="panel-b" style="display:grid;gap:10px">
+      <div style="font-size:13px;color:var(--fg-2)">El analista revisa a todos los jugadores de cada equipo y elige <b>1 o 2 candidatos</b> con su mejor mercado (gol, punto o asistencia). Usa nuestra probabilidad calibrada contra el portero probable, la forma, el historial contra ese portero, los minutos y, cuando existe, el precio de Kalshi: con precio solo recomienda si nuestra probabilidad supera al mercado en 2 puntos o más. Excluye jugadores que se perdieron el último partido de su equipo.</div>
+      <div class="seg" id="ana-date">${dates.map((d) => `<button type="button" data-d="${d}" aria-pressed="${d === ana.date}">${dShort(d)}</button>`).join("")}</div>
+      <div class="legend"><span class="rt rt-strong">Fuerte</span> +6 pts o más sobre Kalshi <span class="rt rt-good">Buena</span> +3,5 a +6 <span class="rt rt-mod">Moderada</span> +2 a +3,5 · sin precio de Kalshi como máximo "Buena", según probabilidad y forma</div>
+    </div></section>
+    ${top.length ? `<section class="panel"><div class="panel-h"><h2>Top 5 de la jornada</h2><span class="sub">${dLong(ana.date)} · ${games.length} partidos por empezar</span></div>
+      <div class="panel-b"><div class="ana-top">${top.map(pickCard).join("")}</div></div></section>` : ""}
+    ${started.length ? `<section class="panel"><div class="panel-b" style="font-size:13px;color:var(--fg-2)">Ya empezaron (sin selecciones): ${started.map((g) => `${g.away} @ ${g.home} ${kalshiLink(kUrl(g.id, "game"))}`).join(" · ")}</div></section>` : ""}
+    ${blocks.join("") || `<section class="panel"><div class="empty">No quedan partidos por empezar en esta fecha. Elige otro día arriba.</div></section>`}
+    <p class="chart-note">Son selecciones estadísticas, no garantías. Comprueba alineaciones y porteros confirmados antes del partido; los precios de Kalshi son del ${kalshiFetchedLbl()}.</p>
+  </div>`;
+  if (!H) app.querySelector(".view").insertAdjacentHTML("afterbegin", `<div class="loading" style="padding:10px;font-size:14px">Cargando historial jugador vs portero… las selecciones se afinarán en un momento.</div>`);
+  bindOpeners(app);
+  $("#ana-date").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { ana.date = b.dataset.d; route(); } });
 }
 
 boot();
