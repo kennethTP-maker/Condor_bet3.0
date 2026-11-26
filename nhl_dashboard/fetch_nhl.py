@@ -502,7 +502,7 @@ def main():
         on_team = [pid for pid, b in bio.items() if b["pos"] == "G" and b["team"] == team]
         k = [pid for pid in on_team if (game["id"], pid) in kal_save]
         if len(k) == 1:
-            return dict(id=k[0], name=gname.get(k[0], f'{bio[k[0]]["first"]} {bio[k[0]]["last"]}'), src="Kalshi", conf="alta")
+            return dict(id=k[0], name=gname.get(k[0], f'{bio[k[0]]["first"]} {bio[k[0]]["last"]}'), src="Kalshi", conf="high")
         hist = sorted(starts.get(team, []))[-10:]
         cnt = {}
         for _, gid in hist:
@@ -518,9 +518,9 @@ def main():
             prev_starter = [gid for d, gid in hist if d == prev]
             if prev_starter and prev_starter[-1] == starter:
                 b = order[1]
-                return dict(id=b, name=gname.get(b, ""), src="Partido ayer: juega el suplente", conf="media")
-        return dict(id=starter, name=gname.get(starter, ""), src=f"Titular en {cnt[starter]} de los últimos {len(hist)}",
-                    conf="alta" if share >= 0.7 else "media" if share >= 0.5 else "baja")
+                return dict(id=b, name=gname.get(b, ""), src="Played yesterday: backup starts", conf="medium")
+        return dict(id=starter, name=gname.get(starter, ""), src=f"Started {cnt[starter]} of last {len(hist)}",
+                    conf="high" if share >= 0.7 else "medium" if share >= 0.5 else "low")
 
     def confirmed(game):
         """Partido empezado: el portero que de verdad está/estuvo en la red (boxscore oficial)."""
@@ -535,7 +535,7 @@ def main():
             gl.sort(key=lambda x: (not x.get("starter"), -(int((x.get("toi") or "0:0").split(":")[0]))))
             if gl:
                 gid = gl[0]["playerId"]
-                out[side] = dict(id=gid, name=gname.get(gid, gl[0]["name"]["default"]), src="Confirmado: en la red", conf="confirmado")
+                out[side] = dict(id=gid, name=gname.get(gid, gl[0]["name"]["default"]), src="Confirmed: in net", conf="confirmed")
         return out
 
     for g in upcoming:
