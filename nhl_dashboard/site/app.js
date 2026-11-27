@@ -149,7 +149,7 @@ async function boot() {
   const next = new Date(gen.getTime() + 24 * 3600 * 1000);
   $("#season-lbl").textContent = `Regular season ${D.seasonLabel}`;
   $("#meta").innerHTML = `
-    <span><span class="live-dot" aria-hidden="true"></span>Updated <b>${gen.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}</b></span>
+    <span><span class="live-dot" aria-hidden="true"></span>Updated <b id="gen-at">${gen.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}</b></span>
     <span>Last game <b>${D.lastGameDate ? dShort(D.lastGameDate) : "–"}</b></span>
     <span>Next update <b>${next.toLocaleString("en-US", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</b></span>
     <span><a class="nhl-link" href="esoccer/">eSoccer Radar ↗</a></span>
@@ -550,6 +550,7 @@ function gameCard(g) {
   return `<article class="game"><div class="game-h">${teamBadge(g.away, true)}<span class="vs">@</span>${teamBadge(g.home, true)}
     <span class="time">${live ? `<b class="num">${g.awayScore ?? 0} – ${g.homeScore ?? 0}</b><br>${g.state === "OFF" || g.state === "FINAL" ? "Final" : "In progress"}` : `<b>${tLocal(g.start)}</b><br>${esc(g.venue || "")}`}</span></div>
     <div class="game-cols">${col(g.away, g.home)}${col(g.home, g.away)}</div>
+    ${gameKalshiTable(g)}
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center"><a class="vs-link" href="#vsgoalie" data-vsgame="${g.id}">Player vs goalie duels →</a>${nhlLink(g.link || gameUrl(g.away, g.home, false, g.date, g.id), "Game on NHL.com")}${kalshiLink(kUrl(g.id, "game"))}</div></article>`;
 }
 function chipMini(f) { const x = FORM[f] || FORM.flat; return `<span style="color:var(${x.v})" title="${x.label}">${x.icon}</span>`; }
@@ -1270,25 +1271,53 @@ async function liveMarkets(series) {
   }
   return all;
 }
+
+const SITE_URL = "https://kennethtp-maker.github.io/Condor_bet3.0/";
+function toast(msg) {
+  let t = $("#toast");
+  if (!t) { document.body.insertAdjacentHTML("beforeend", '<div id="toast" class="toast" role="status" aria-live="polite"></div>'); t = $("#toast"); }
+  t.innerHTML = msg; t.classList.add("show");
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("show"), 5000);
+}
+function setGenLabel() { const el = $("#gen-at"); if (el) el.textContent = new Date(D.generatedAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }); }
+
+async function reloadBase() {
+  const r = await fetch(DATA_URL + "?t=" + Date.now(), { cache: "no-store" });
+  if (!r.ok) return false;
+  const nd = await r.json();
+  if (nd.generatedAt === D.generatedAt) return false;
+  D = nd; TEAM = {};
+  D.teams.forEach((t) => (TEAM[t.abbr] = t)); D.skaters.forEach((s) => (s.kind = "S")); D.goalies.forEach((g) => (g.kind = "G"));
+  setGenLabel();
+  return true;
+}
 async function liveTick(manual) {
-  if (LIVE.busy || !D.kalshi) return;
+  if (LIVE.busy) return;
   LIVE.busy = true; paintLive("updating…");
+  const btn = $("#refresh-btn");
+  if (manual && btn) { btn.disabled = true; btn.textContent = "Refreshing…"; }
+  let base = false, changed = 0;
   try {
+    if (manual || LIVE.ticks % 20 === 0) base = await reloadBase().catch(() => false);
+    if (!D.kalshi) throw new Error("no Kalshi data");
     const byTicker = new Map();
     for (const s of LIVE_SERIES) (await liveMarkets(s)).forEach((m) => byTicker.set(m.ticker, m));
     const num = (x) => (x == null || x === "" ? null : Math.round(parseFloat(x) * 10000) / 10000);
     let n = 0;
-    Object.values(D.kalshi.players).forEach((p) => ["goal", "pts", "ast", "save"].forEach((k) => (p[k] || []).forEach((m) => {
-      const x = byTicker.get(m.ticker); if (x) { m.ask = num(x.yes_ask_dollars); m.bid = num(x.yes_bid_dollars); n++; }
-    })));
-    Object.values(D.kalshi.games).forEach((g) => Object.values(g.win || {}).forEach((w) => {
-      const x = byTicker.get(w.ticker); if (x) { w.ask = num(x.yes_ask_dollars); w.bid = num(x.yes_bid_dollars); }
-    }));
+    const upd = (m, x) => { const a = num(x.yes_ask_dollars), b = num(x.yes_bid_dollars); if (a !== m.ask) changed++; m.ask = a; m.bid = b; n++; };
+    Object.values(D.kalshi.players).forEach((p) => ["goal", "pts", "ast", "save"].forEach((k) => (p[k] || []).forEach((m) => { const x = byTicker.get(m.ticker); if (x) upd(m, x); })));
+    Object.values(D.kalshi.games).forEach((g) => Object.values(g.win || {}).forEach((w) => { const x = byTicker.get(w.ticker); if (x) upd(w, x); }));
     D.kalshi.fetchedAt = new Date().toISOString();
     LIVE.on = true; LIVE.err = null; LIVE.last = Date.now(); LIVE.ticks++; LIVE.n = n;
     if ($("#modal").hidden && !document.activeElement?.matches?.("input, select")) route();
-  } catch (e) { LIVE.err = String(e.message || e); }
-  finally { LIVE.busy = false; paintLive(); }
+    if (manual) toast(`✓ Updated · ${n} Kalshi prices checked, ${changed} changed${base ? " · new stats loaded" : ""}`);
+  } catch (e) {
+    LIVE.err = String(e.message || e);
+    if (manual) toast(LIVE.on ? `Could not reach live data (${esc(LIVE.err)}). Try again in a moment.` : `Live refresh works on the website: <a href="${SITE_URL}" target="_blank" rel="noopener">open the live NHL Radar ↗</a>`);
+  } finally {
+    LIVE.busy = false; paintLive();
+    if (btn) { btn.disabled = false; btn.textContent = "Refresh"; }
+  }
 }
 function paintLive(msg) {
   const el = $("#live-st"); if (!el) return;
@@ -1329,6 +1358,33 @@ function trackPanel() {
       <tbody>${T.recent.map((r) => `<tr style="cursor:default"><td class="l">${new Date(r.start).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td><td class="l">${esc(r.game || "")}</td><td class="l">${esc(r.label)}</td><td>${pctv(r.p)}</td><td>${Math.round(r.ask * 100)}¢</td><td class="l">${r.rating}</td><td class="l">${st(r)}</td><td class="${cls(r.pnl)}">${r.pnl == null ? "–" : money(r.pnl)}</td></tr>`).join("")}</tbody></table></div></details>` : ""}
     <p class="chart-note" style="margin:0">Picks are recorded at each data update with the price at that moment, so your own entry price can differ. Results fill in as games finish. A few days of picks are needed before the numbers mean much.</p>
   </div></section>`;
+}
+
+
+/* every player of the game with a Kalshi market: our probability, price and edge for goal / point / assist */
+function gameKalshiTable(g) {
+  const rows = [];
+  [[g.away, g.home], [g.home, g.away]].forEach(([team, opp]) => {
+    const gk = H && !H.error ? probableGoalie(opp, g) : null;
+    activeSk().filter((s) => s.team === team).forEach((s) => {
+      const kp = kPlayerAny(s.id);
+      if (!kp || kp.game !== g.id) return;
+      const m = gk ? matchup(s, gk.id) : { s, ...projFor(s, opp) };
+      const live = kLive(s.id);
+      const cell = (k, p) => { const mk = kMarketAny(s.id, k, 1); const ask = mk && mk.ask ? mk.ask : null; return { p, ask, edge: ask != null && !live ? p - ask : null }; };
+      const c = [cell("goal", m.pGoal), cell("pts", m.pPoint), cell("ast", m.pAssist)];
+      if (c.every((x) => x.ask == null)) return;
+      rows.push({ s, team, c, live, best: Math.max(...c.map((x) => (x.edge == null ? -9 : x.edge))), out: missedGames(s) });
+    });
+  });
+  if (!rows.length) return "";
+  rows.sort((a, b) => b.best - a.best);
+  const td = (x) => `<td class="pct">${pct(x.p)}</td><td>${x.ask == null ? `<span class="dim">–</span>` : `<span class="kal-price${rows[0] && x.edge == null && x.ask != null ? " kal-live" : ""}">${cents(x.ask)}</span>`}</td><td>${x.edge == null ? `<span class="dim">–</span>` : edgeCell(x.p, x.ask)}</td>`;
+  const pos = rows.filter((r) => r.best >= 0.02).length;
+  return `<details class="kal-all"><summary>All players vs Kalshi <span class="dim">(${rows.length} players · ${pos} with +2 pts or more)</span></summary>
+    <div class="tbl-wrap" style="margin-top:8px"><table class="tbl" style="min-width:700px"><thead><tr><th class="l">Player</th><th>Goal</th><th>Kalshi</th><th>Edge</th><th>Point</th><th>Kalshi</th><th>Edge</th><th>Assist</th><th>Kalshi</th><th>Edge</th></tr></thead>
+    <tbody>${rows.map((r) => `<tr data-p="${r.s.id}"><td class="l"><span class="pl"><span class="dim">${esc(r.team)}</span> <b>${esc(r.s.name)}</b> ${chipMini(r.s.form)}${r.out ? ` <span class="miss-dot" title="Missed his team's last game(s)">⚠ ${r.out}</span>` : ""}</span></td>${r.c.map(td).join("")}</tr>`).join("")}</tbody></table></div>
+    <p class="chart-note" style="margin:6px 0 0">Ours = probability against the probable opposing goalie. Edge = ours − Kalshi Yes price (green = our model sees more chance than the market). ${rows.some((r) => r.live) ? "Orange prices are in-game, so no edge is shown." : ""}</p></details>`;
 }
 
 boot();

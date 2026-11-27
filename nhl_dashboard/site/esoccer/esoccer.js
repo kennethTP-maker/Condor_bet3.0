@@ -99,7 +99,7 @@ async function boot() {
   D.players.forEach((p) => (P[p.name] = p));
   if (D.sport) { SP = D.sport; document.title = SP.name; const h = $(".brand h1"); if (h) h.textContent = SP.name; }
   const gen = new Date(D.generatedAt);
-  $("#meta").innerHTML = `<span><span class="live-dot" aria-hidden="true"></span>Updated <b>${gen.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}</b></span>
+  $("#meta").innerHTML = `<span><span class="live-dot" aria-hidden="true"></span>Updated <b id="gen-at">${gen.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}</b></span>
     <span>Last result <b>${D.lastMatch ? dtShort(D.lastMatch) : "–"}</b></span>
     <span><a class="nhl-link" href="../">NHL Radar ↗</a></span>
     <span>${SP.key === "ebasketball" ? '<a class="nhl-link" href="../esoccer/">eSoccer Radar ↗</a>' : '<a class="nhl-link" href="../ebasketball/">eBasketball Radar ↗</a>'}</span>
@@ -486,16 +486,46 @@ async function liveScores() {
   }
 }
 
+
+const SITE_URL = "https://kennethtp-maker.github.io/Condor_bet3.0/";
+function toast(msg) {
+  let t = $("#toast");
+  if (!t) { document.body.insertAdjacentHTML("beforeend", '<div id="toast" class="toast" role="status" aria-live="polite"></div>'); t = $("#toast"); }
+  t.innerHTML = msg; t.classList.add("show");
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("show"), 5000);
+}
+function setGenLabel() { const el = $("#gen-at"); if (el) el.textContent = new Date(D.generatedAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }); }
+
+async function reloadBase() {
+  const r = await fetch(DATA_URL + "?t=" + Date.now(), { cache: "no-store" });
+  if (!r.ok) return false;
+  const nd = await r.json();
+  if (nd.generatedAt === D.generatedAt) return false;
+  D = nd; P = {}; H2H = null;
+  D.players.forEach((p) => (P[p.name] = p));
+  if (D.sport) SP = D.sport;
+  setGenLabel();
+  return true;
+}
 async function liveTick(manual) {
   if (LIVE.busy) return;
   LIVE.busy = true; paintLive("updating…");
+  const btn = $("#refresh-btn");
+  if (manual && btn) { btn.disabled = true; btn.textContent = "Refreshing…"; }
+  let base = false, newRes = 0, changed = 0, newMatches = 0;
   try {
+    if (manual || LIVE.ticks % 30 === 0) base = await reloadBase().catch(() => false);
     if (!H2H) buildH2H();
     const since = Math.floor((new Date(D.lastMatch || Date.now() - 3600e3).getTime() - 10 * 60e3) / 1000);
     const [openM, closedM] = await Promise.all([kalshiMarkets("status=open"), kalshiMarkets("min_close_ts=" + since)]);
     const seen = new Set(D.recent.map((m) => m.id));
-    parseKalshi(closedM).filter((m) => m.res && !seen.has(m.id)).sort((x, y) => x.start.localeCompare(y.start)).forEach(applyResult);
+    const fresh = parseKalshi(closedM).filter((m) => m.res && !seen.has(m.id)).sort((x, y) => x.start.localeCompare(y.start));
+    fresh.forEach(applyResult); newRes = fresh.length;
+    const prev = new Map(D.upcoming.map((m) => [m.id, m]));
     D.upcoming = parseKalshi(openM).filter((m) => m.open && !m.res).sort((x, y) => x.start.localeCompare(y.start)).map((m) => {
+      const old = prev.get(m.id);
+      if (!old) newMatches++;
+      else if (old.pa.ask !== m.pa.ask || old.pb.ask !== m.pb.ask || (old.pt && m.pt && old.pt.ask !== m.pt.ask)) changed++;
       const pr = modelProbs(m.a, m.b);
       const ga = P[m.a] && P[m.a].goals && P[m.a].goals.all, gb = P[m.b] && P[m.b].goals && P[m.b].goals.all;
       return Object.assign(m, { ma: pr.pa, md: pr.pd, mb: pr.pb, h2h: pr.rec, ea: pr.ra, eb: pr.rb, xg: ga && gb ? [(ga.gf + gb.ga) / 2, (gb.gf + ga.ga) / 2] : null });
@@ -505,9 +535,14 @@ async function liveTick(manual) {
     if (manual || LIVE.ticks % 3 === 0) await liveScores();
     LIVE.on = true; LIVE.err = null; LIVE.last = Date.now(); LIVE.ticks++;
     if ($("#modal").hidden && !document.activeElement?.matches?.("input, select")) route();
+    if (manual) toast(`✓ Updated · ${D.upcoming.length} upcoming matches · ${changed} prices changed · ${newMatches} new · ${newRes} new results${base ? " · new stats loaded" : ""}`);
   } catch (e) {
     LIVE.err = String(e.message || e);
-  } finally { LIVE.busy = false; paintLive(); }
+    if (manual) toast(LIVE.on ? `Could not reach live data (${esc(LIVE.err)}). Try again in a moment.` : `Live refresh works on the website: <a href="${SITE_URL}${SP.key}/" target="_blank" rel="noopener">open the live ${esc(SP.name)} ↗</a>`);
+  } finally {
+    LIVE.busy = false; paintLive();
+    if (btn) { btn.disabled = false; btn.textContent = "Refresh"; }
+  }
 }
 function paintLive(msg) {
   const el = $("#live-st"); if (!el) return;
