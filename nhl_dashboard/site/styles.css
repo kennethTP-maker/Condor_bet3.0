@@ -317,3 +317,4 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 
 .pv-vs small { font-family: var(--f-body); font-size: 10.5px; }
 .pv .theme-btn { justify-self: start; }
 td.pv-win { color: var(--up); font-weight: 700; background: color-mix(in srgb, var(--up) 8%, transparent); }
+.pv-pick { font-size: 13px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 8px; background: var(--bg-2, rgba(127,127,127,.08)); }
