@@ -247,13 +247,41 @@ def fit_kpair(matches, params):
     return KPAIR
 
 
+def signal_hits(pick_p, gap, elo_is_pick, hn, h2r, all3, fp, fo):
+    """Which high-confidence signals a pick meets (same rules in the page)."""
+    out = []
+    if pick_p >= 0.70: out.append("m70")
+    if pick_p >= 0.65: out.append("m65")
+    if pick_p >= 0.65 and all3: out.append("m65all3")
+    if pick_p >= 0.60 and all3: out.append("m60all3")
+    if elo_is_pick and gap >= 200: out.append("elo200")
+    if elo_is_pick and gap >= 150: out.append("elo150")
+    if hn >= 10 and h2r >= 0.70: out.append("h2h70")
+    if pick_p >= 0.60 and fp == "hot" and fo == "cold": out.append("hotcold")
+    return out
+
+
 def agreement_backtest(matches, params):
-    """Leak-free hit rates of the winner pick by how Elo, head-to-head and form line up."""
+    """Leak-free hit rates of the winner pick by how Elo, head-to-head and form line up,
+    and by high-confidence signal."""
+    import bisect
     R = defaultdict(lambda: 1500.0)
     n = defaultdict(int)
     H = defaultdict(lambda: [0, 0, 0])
     L = defaultdict(list)
+    hist = defaultdict(lambda: ([], []))
+    ex = defaultdict(list)
     st = {k: [0, 0] for k in ("all", "agree", "all3", "disElo", "disH2h", "p60", "p70")}
+    sig = defaultdict(lambda: [0, 0])
+
+    def form(pl, t):
+        ts, rs = hist[pl]
+        t7 = (datetime.fromisoformat(t.replace("Z", "")) - timedelta(days=7)).isoformat()[:16]
+        i = bisect.bisect_right(ts, t7)
+        r7 = rs[i - 1] if i else 1500.0
+        e = ex[pl][-10:]
+        return form_label(R[pl] - r7, sum(e) / len(e) if e else 0)[0]
+
     for m in matches:
         a, b, res = m["a"], m["b"], m["res"]
         key = (a, b) if a < b else (b, a)
@@ -266,6 +294,7 @@ def agreement_backtest(matches, params):
             h2 = None if sum(rec) < 3 or rec[0] == rec[2] else ("A" if rec[0] > rec[2] else "B")
             fa, fb = sum(L[a][-10:]) / max(1, len(L[a][-10:])), sum(L[b][-10:]) / max(1, len(L[b][-10:]))
             fm = None if fa == fb else ("A" if fa > fb else "B")
+
             def add(k, pick):
                 st[k][0] += 1
                 st[k][1] += pick == res
@@ -281,16 +310,27 @@ def agreement_backtest(matches, params):
                 add("p60", model)
             if max(pa, pb) >= 0.7:
                 add("p70", model)
+            hn = sum(rec)
+            hw = rec[0] if model == "A" else rec[2]
+            fp, fo = (form(a, m["start"]), form(b, m["start"])) if model == "A" else (form(b, m["start"]), form(a, m["start"]))
+            for k in signal_hits(max(pa, pb), abs(R[a] - R[b]), elo == model, hn, hw / hn if hn else 0,
+                                 h2 == elo == fm == model, fp, fo):
+                sig[k][0] += 1
+                sig[k][1] += model == res
         s = {"A": 1.0, "T": 0.5, "B": 0.0}[res]
         e = expected(R[a], R[b])
         for pl, d in ((a, s - e), (b, e - s)):
             R[pl] += params["K"] * (1.6 if n[pl] < 20 else 1.0) * d
             n[pl] += 1
+            ex[pl].append(d)
+            hist[pl][0].append(m["start"])
+            hist[pl][1].append(R[pl])
         L[a].append(s)
         L[b].append(1 - s)
         h[{"A": 0, "T": 1, "B": 2}[res] if key[0] == a else {"A": 2, "T": 1, "B": 0}[res]] += 1
-    return {k: [v[0], round(v[1] / v[0], 4) if v[0] else None] for k, v in st.items()}
-
+    out = {k: [v[0], round(v[1] / v[0], 4) if v[0] else None] for k, v in st.items()}
+    out["signals"] = {k: [v[0], round(v[1] / v[0], 4)] for k, v in sig.items() if v[0] >= 100}
+    return out
 
 def calibration(rows):
     def table(idx, outcome, edges):

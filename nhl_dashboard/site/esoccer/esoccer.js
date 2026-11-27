@@ -696,6 +696,28 @@ function agreeInfo(m) {
   if (h2 === elo) return { kind: "agree", side: elo, cls: "ok", tag: "Elo + H2H agree", text: `Elo and head-to-head both favour ${nm(elo)}. Historically this pick wins ${hr("agree")}.` };
   return { kind: "dis", side: h2, cls: "ko", tag: "Elo vs H2H disagree", text: `Elo favours ${nm(elo)} but the head-to-head favours ${nm(h2)}. Historically the Elo side wins ${hr("disElo")} and the H2H side ${hr("disH2h")}: risky, consider skipping.` };
 }
+
+/* 🔥 when the pick meets a signal that historically wins 70%+ (same rules as the builder backtest) */
+const SIG_LABEL = { m70: "Model 70%+", m65: "Model 65%+", m65all3: "Model 65%+ and Elo, H2H, form agree", m60all3: "Model 60%+ and Elo, H2H, form agree", elo200: "Elo gap 200+", elo150: "Elo gap 150+", h2h70: "Wins 70%+ of 10+ meetings", hotcold: "Model 60%+, Hot vs Cold" };
+function fireSignals(m) {
+  const sg = D.model && D.model.agree && D.model.agree.signals;
+  if (!sg) return [];
+  const pickA = m.ma >= m.mb, pp = Math.max(m.ma, m.mb);
+  const ea = m.ea != null ? m.ea : P[m.a] ? P[m.a].elo : 1500, eb = m.eb != null ? m.eb : P[m.b] ? P[m.b].elo : 1500;
+  const eloIsPick = (ea >= eb) === pickA, gap = Math.abs(ea - eb);
+  const [hw, hd, hl] = m.h2h || [0, 0, 0], hn = hw + hd + hl, h2r = hn ? (pickA ? hw : hl) / hn : 0;
+  const ai = agreeInfo(m), all3 = ai.kind === "all3" && (ai.side === "A") === pickA;
+  const fp = (P[pickA ? m.a : m.b] || {}).form, fo = (P[pickA ? m.b : m.a] || {}).form;
+  const on = { m70: pp >= 0.7, m65: pp >= 0.65, m65all3: pp >= 0.65 && all3, m60all3: pp >= 0.6 && all3, elo200: eloIsPick && gap >= 200, elo150: eloIsPick && gap >= 150, h2h70: hn >= 10 && h2r >= 0.7, hotcold: pp >= 0.6 && fp === "hot" && fo === "cold" };
+  return Object.keys(on).filter((k) => on[k] && sg[k] && sg[k][1] >= 0.7).map((k) => ({ k, label: SIG_LABEL[k], hit: sg[k][1], n: sg[k][0] })).sort((x, y) => y.hit - x.hit);
+}
+function fireBadge(m) {
+  const f = fireSignals(m);
+  if (!f.length) return "";
+  const who = m.ma >= m.mb ? m.a : m.b;
+  const tip = `${who}: ` + f.map((x) => `${x.label} (won ${pct(x.hit)} of ${x.n.toLocaleString("en-US")})`).join(" · ");
+  return `<span class="pv-fire" title="${esc(tip)}" aria-label="${esc(tip)}">🔥</span>`;
+}
 function dataPickLine(dp) {
   return `<div class="pv-pick"><span class="dim">Data pick</span> <b>${esc(dp.label)}</b> <span class="rt ${dp.conf[1]}">${dp.conf[0]}</span>${dp.agree ? ` <span class="pv-tag ${dp.agree.cls}">${esc(dp.agree.tag)}</span>` : ""}${dp.total ? ` <span class="dim">·</span> <b>${esc(dp.total.label)}</b> <span class="dim">${pct(dp.total.p)}</span>` : ""}</div>`;
 }
@@ -752,7 +774,7 @@ function previewCard(m, frozen) {
   const side = (S, nm, team, prob, ask) => `<div class="pv-side"><div class="nm" data-pl="${esc(nm)}" style="cursor:pointer">${esc(nm)}</div>
     <div class="dim" style="font-size:12px">${esc(team)}</div><div style="margin:4px 0">${chip(S.p.form)}</div>${resStrip(S.p.l10)}
     <div class="pv-num"><b class="num">${pct(prob)}</b><small>ours · Kalshi ${cents(ask)}</small></div><div class="dim" style="font-size:12px">Elo ${Math.round(S.p.elo)} · 24 h ${recTxt(S.d24)}</div></div>`;
-  return `<article class="pickc pv" data-match="${esc(m.id)}">
+  return `<article class="pickc pv" data-match="${esc(m.id)}">${fireBadge(m)}
     <div class="dim" style="font-size:12px;display:flex;gap:8px;flex-wrap:wrap">${esc(tourShort(m.tour))} · ${st.head} ${kLink(m.id)}</div>
     ${st.line}
     <div class="pv-grid">${side(A, m.a, m.ta, m.ma, m.pa.ask)}<div class="pv-vs">vs${SP.draws ? `<small>Draw ${pct(m.md)}<br>K ${cents(m.pt.ask)}</small>` : ""}</div>${side(B, m.b, m.tb, m.mb, m.pb.ask)}</div>
