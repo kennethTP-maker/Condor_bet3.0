@@ -1,4 +1,4 @@
-name: NHL Radar - actualización diaria
+name: NHL Radar + eSoccer Radar - actualización
 
 on:
   schedule:
@@ -32,6 +32,9 @@ jobs:
 
       - name: Descargar datos oficiales NHL y calcular tendencias
         run: python nhl_dashboard/fetch_nhl.py
+
+      - name: Datos de eSoccer (Kalshi)
+        run: python nhl_dashboard/fetch_esoccer.py
 
       - name: Guardar datos en el repositorio
         run: |
