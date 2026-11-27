@@ -318,3 +318,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 
 .pv .theme-btn { justify-self: start; }
 td.pv-win { color: var(--up); font-weight: 700; background: color-mix(in srgb, var(--up) 8%, transparent); }
 .pv-pick { font-size: 13px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 8px; background: var(--bg-2, rgba(127,127,127,.08)); }
+.pv-res { font-size: 13px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line-soft); }
+.pv-tag { font-size: 12px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--line-soft); color: var(--fg-2); }
+.pv-tag.ok { background: color-mix(in srgb, var(--up) 16%, transparent); color: var(--up); }
+.pv-tag.ko { background: color-mix(in srgb, var(--down) 16%, transparent); color: var(--down); }

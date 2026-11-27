@@ -226,11 +226,11 @@ function viewMatches(app) {
   const ups = D.upcoming.filter(mInTour);
   const rec = D.recent.filter(mInTour).slice(-80).reverse();
   const resTxt = (m) => (m.res === "A" ? `<b>${esc(m.a)}</b> won` : m.res === "B" ? `<b>${esc(m.b)}</b> won` : "Draw");
-  const pv = ups.filter((m) => !started(m)).slice(0, 24);
+  const pv = pvList().slice(0, 30);
   app.innerHTML = `<div class="view">
     <div>${tourSeg("tour-seg")}</div>
-    <section class="panel"><div class="panel-h"><h2>Match previews</h2><span class="sub">Who is stronger in each upcoming match · tap "Full comparison" for every stat and past meetings</span></div>
-      <div class="panel-b"><div class="ana-top">${pv.map(previewCard).join("") || `<div class="empty">No upcoming matches listed right now.</div>`}</div></div></section>
+    <section class="panel"><div class="panel-h"><h2>Match previews</h2><span class="sub">Who is stronger in each match · started matches stay 30 min with the result and whether the data pick hit · tap "Full comparison" for every stat</span></div>
+      <div class="panel-b"><div class="ana-top">${pv.map((x) => previewCard(x.m, x.dp)).join("") || `<div class="empty">No upcoming matches listed right now.</div>`}</div></div></section>
     <section class="panel"><div class="panel-h"><h2>Upcoming</h2><span class="sub">Ours vs Kalshi Yes price · ${SP.draws ? "A / Draw / B" : "A / B"}</span></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:900px">
       <thead><tr><th class="l">Start</th><th class="l">Tournament</th><th class="l">Match</th><th>A ours</th><th>A Kalshi</th>${SP.draws ? "<th>Draw ours</th><th>Draw Kalshi</th>" : ""}<th>B ours</th><th>B Kalshi</th><th class="l">H2H (${SP.draws ? "A-D-B" : "A-B"})</th><th title="Expected score from each player's scoring and conceding averages">Exp. score</th><th class="l"></th></tr></thead>
       <tbody>${ups.map((m) => `<tr data-open-match="${esc(m.id)}" style="cursor:pointer${started(m) ? ";opacity:.55" : ""}"><td class="l">${tShort(m.start)}${started(m) ? ' <span class="kal-live">● live</span>' : ""}</td><td class="l">${tourShort(m.tour)}</td>
@@ -670,33 +670,79 @@ function dataPick(m, A, B, rows) {
   if (ln != null && oa != null && ob != null) {
     const po = (oa + ob) / 2, over = po >= 0.5, pp = over ? po : 1 - po;
     const exp = m.xg ? m.xg[0] + m.xg[1] : null;
-    total = { label: `${over ? "Over" : "Under"} ${ln}`, p: pp, strong: pp >= 0.6 };
+    total = { label: `${over ? "Over" : "Under"} ${ln}`, p: pp, over, line: ln };
     why.push(`${U().Many}: ${over ? "over" : "under"} ${ln} in ${pct(pp)} of their recent games${exp ? ` · expected total ${exp.toFixed(1)}` : ""}.`);
   }
-  return { label, p, conf, total, why };
+  return { k, label, p, conf, total, why };
 }
 function dataPickLine(dp) {
   return `<div class="pv-pick"><span class="dim">Data pick</span> <b>${esc(dp.label)}</b> <span class="rt ${dp.conf[1]}">${dp.conf[0]}</span>${dp.total ? ` <span class="dim">·</span> <b>${esc(dp.total.label)}</b> <span class="dim">${pct(dp.total.p)}</span>` : ""}</div>`;
 }
-function previewCard(m) {
+/* keep each preview (and the pick as it stood before kick-off) until 30 min after the start */
+const PV_KEEP = 30;
+let PVS = null;
+function pvLoad() {
+  PVS = new Map();
+  try { const raw = JSON.parse(localStorage.getItem("pv_" + SP.key) || "[]"); raw.forEach((x) => PVS.set(x.m.id, x)); } catch (e) { /* storage unavailable */ }
+}
+function pvSave() {
+  const cut = Date.now() - 60 * 60e3;
+  for (const [id, x] of PVS) if (new Date(x.m.start).getTime() < cut) PVS.delete(id);
+  try { localStorage.setItem("pv_" + SP.key, JSON.stringify([...PVS.values()])); } catch (e) { /* storage unavailable */ }
+}
+function pvFreeze() {
+  if (!PVS) pvLoad();
+  const snap = (m, force) => {
+    if (!force && PVS.has(m.id)) return;
+    const A = sideStats(m.a, m.ta, m.start), B = sideStats(m.b, m.tb, m.start);
+    if (!A || !B) return;
+    const dp = dataPick(m, A, B, compareRows(m, A, B));
+    PVS.set(m.id, { m: JSON.parse(JSON.stringify(m)), dp: { k: dp.k, label: dp.label, conf: dp.conf, p: dp.p, total: dp.total } });
+  };
+  D.upcoming.forEach((m) => snap(m, !started(m)));           // before kick-off: keep the latest numbers
+  (D.justStarted || []).forEach((m) => snap(m, false));      // settled already: pre-match numbers from the server
+  pvSave();
+}
+function pvList() {
+  pvFreeze();
+  return [...PVS.values()].filter((x) => minsTo(x.m.start) > -PV_KEEP && mInTour(x.m)).sort((x, y) => x.m.start.localeCompare(y.m.start));
+}
+function pvStatus(m, dp) {
+  const mins = minsTo(m.start);
+  if (mins > 0) return { head: `in ${mins} min · ${tShort(m.start)}`, line: "" };
+  const r = D.recent.find((x) => x.id === m.id);
+  const ago = `started ${-mins} min ago · leaves in ${PV_KEEP + mins} min`;
+  if (!r || !r.res) return { head: `<span class="kal-live">● Live</span> · ${ago}`, line: `<div class="pv-res"><span class="kal-live">●</span> In play · pick: <b>${esc(dp.label)}</b>${dp.total ? ` · <b>${esc(dp.total.label)}</b>` : ""} <span class="dim">(result shows here when it's in)</span></div>` };
+  const winTxt = r.res === "T" ? "Draw" : `${r.res === "A" ? m.a : m.b} won`;
+  const sc = r.score ? ` · ${m.a} ${r.score[0]}–${r.score[1]} ${m.b}` : "";
+  const hit = r.res === dp.k;
+  const tag = (ok, lbl) => `<span class="pv-tag ${ok == null ? "" : ok ? "ok" : "ko"}">${ok == null ? "…" : ok ? "✓" : "✗"} ${esc(lbl)}</span>`;
+  let tot = "";
+  if (dp.total) tot = r.score ? tag((r.score[0] + r.score[1] > dp.total.line) === dp.total.over, `${dp.total.label} (total ${r.score[0] + r.score[1]})`) : tag(null, `${dp.total.label} · waiting for score`);
+  return { head: `<b>Final</b> · ${ago}`, line: `<div class="pv-res"><b>${esc(winTxt)}${sc}</b> ${tag(hit, dp.label)} ${tot}</div>` };
+}
+function previewCard(m, frozen) {
   const A = sideStats(m.a, m.ta, m.start), B = sideStats(m.b, m.tb, m.start);
   if (!A || !B) return "";
   const rows = compareRows(m, A, B);
   const mins = minsTo(m.start);
+  const dp = frozen && mins <= 0 ? frozen : dataPick(m, A, B, rows);
+  const st = pvStatus(m, dp);
   const side = (S, nm, team, prob, ask) => `<div class="pv-side"><div class="nm" data-pl="${esc(nm)}" style="cursor:pointer">${esc(nm)}</div>
     <div class="dim" style="font-size:12px">${esc(team)}</div><div style="margin:4px 0">${chip(S.p.form)}</div>${resStrip(S.p.l10)}
     <div class="pv-num"><b class="num">${pct(prob)}</b><small>ours · Kalshi ${cents(ask)}</small></div><div class="dim" style="font-size:12px">Elo ${Math.round(S.p.elo)} · 24 h ${recTxt(S.d24)}</div></div>`;
   return `<article class="pickc pv" data-match="${esc(m.id)}">
-    <div class="dim" style="font-size:12px;display:flex;gap:8px;flex-wrap:wrap">${esc(tourShort(m.tour))} · ${mins > 0 ? `in ${mins} min · ${tShort(m.start)}` : `<span class="kal-live">● started</span>`} ${kLink(m.id)}</div>
+    <div class="dim" style="font-size:12px;display:flex;gap:8px;flex-wrap:wrap">${esc(tourShort(m.tour))} · ${st.head} ${kLink(m.id)}</div>
+    ${st.line}
     <div class="pv-grid">${side(A, m.a, m.ta, m.ma, m.pa.ask)}<div class="pv-vs">vs${SP.draws ? `<small>Draw ${pct(m.md)}<br>K ${cents(m.pt.ask)}</small>` : ""}</div>${side(B, m.b, m.tb, m.mb, m.pb.ask)}</div>
     <div>${h2hBar(m)}</div>
     <div style="font-size:12.5px">${verdict(m, rows)}</div>
-    ${dataPickLine(dataPick(m, A, B, rows))}
+    ${dataPickLine(dp)}${mins <= 0 ? `<div class="dim" style="font-size:11px">Pick and % frozen at kick-off.</div>` : ""}
     <button class="theme-btn" type="button" data-open-match="${esc(m.id)}">Full comparison →</button>
   </article>`;
 }
 function openMatch(id) {
-  const m = D.upcoming.find((x) => x.id === id);
+  const m = (PVS && PVS.has(id) && started(PVS.get(id).m) ? PVS.get(id).m : null) || D.upcoming.find((x) => x.id === id) || (PVS && PVS.get(id) && PVS.get(id).m);
   if (!m) return;
   const A = sideStats(m.a, m.ta, m.start), B = sideStats(m.b, m.tb, m.start);
   if (!A || !B) return;
@@ -709,7 +755,7 @@ function openMatch(id) {
       <div class="facts"><span>${esc(m.tour)}</span><span>${esc(m.ta)} vs ${esc(m.tb)}</span><span>${new Date(m.start).toLocaleString("en-US", { weekday: "short", hour: "2-digit", minute: "2-digit" })}</span>${kLink(m.id)}</div></div>
       <button class="close" type="button" aria-label="Close">×</button></div>
     <section class="panel"><div class="panel-b" style="font-size:14px">${verdict(m, rows)}</div></section>
-    ${(() => { const dp = dataPick(m, A, B, rows); return `<section class="panel"><div class="panel-h"><h3>Analyst pick from data</h3><span class="sub">Price ignored: what the stats alone favour. Not a value bet unless Kalshi's price is below our %.</span></div><div class="panel-b" style="display:grid;gap:8px">${dataPickLine(dp)}<ul class="why">${dp.why.map((t) => `<li>${t}</li>`).join("")}</ul></div></section>`; })()}
+    ${(() => { const live = dataPick(m, A, B, rows), fz = started(m) && PVS && PVS.get(m.id) ? PVS.get(m.id).dp : null; const dp = fz ? Object.assign({}, live, fz, { why: live.why }) : live; return `<section class="panel"><div class="panel-h"><h3>Analyst pick from data</h3><span class="sub">${started(m) ? "Frozen at kick-off · " : ""}Price ignored: what the stats alone favour. Not a value bet unless Kalshi's price is below our %.</span></div><div class="panel-b" style="display:grid;gap:8px">${dataPickLine(dp)}<ul class="why">${dp.why.map((t) => `<li>${t}</li>`).join("")}</ul></div></section>`; })()}
     <section class="panel"><div class="panel-h"><h3>Side by side</h3><span class="sub">Green = better side for that indicator · ${U().many} from ${A.gLbl}</span></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:0">
       <thead><tr><th class="l"></th><th>${esc(m.a)}</th><th>${esc(m.b)}</th></tr></thead><tbody>
       ${rows.map((r) => `<tr style="cursor:default"><td class="l">${r.label}</td><td class="${r.aw ? "pv-win" : ""}">${r.a}</td><td class="${r.bw ? "pv-win" : ""}">${r.b}</td></tr>`).join("")}

@@ -468,6 +468,30 @@ def main():
                        ea=round(R[m["a"]], 1), eb=round(R[m["b"]], 1)))
 
     recent = [dict(**{k: m[k] for k in ("id", "tour", "start", "a", "b", "ta", "tb", "res")}, score=m.get("score"), h1=m.get("h1")) for m in done[-300:]]
+    # ---- matches that started in the last 35 min and are already settled:
+    # pre-match probabilities (ratings without those results) so the page can
+    # keep showing them for 30 min with the pick's outcome
+    cut = (now - timedelta(minutes=35)).isoformat()[:16]
+    just = [m for m in done if m["start"] >= cut]
+    just_out = []
+    if just:
+        pre = [m for m in done if m["start"] < cut]
+        R0 = run_elo(pre, params["K"], params["d0"], params["w"])[0]
+        H0 = defaultdict(lambda: [0, 0, 0])
+        for m in pre:
+            key = tuple(sorted((m["a"], m["b"])))
+            r = m["res"]
+            H0[key][(0 if r == "A" else 1 if r == "T" else 2) if key[0] == m["a"] else (2 if r == "A" else 1 if r == "T" else 0)] += 1
+        for m in just:
+            key = tuple(sorted((m["a"], m["b"])))
+            rec = list(H0[key]) if key[0] == m["a"] else [H0[key][2], H0[key][1], H0[key][0]]
+            pa, pd, pb = blend_pair(*probs(R0[m["a"]], R0[m["b"]], params["d0"], params["w"]), rec)
+            ga_, gb_ = (pl_goals.get(m["a"]) or {}).get("all"), (pl_goals.get(m["b"]) or {}).get("all")
+            xg = [round((ga_["gf"] + gb_["ga"]) / 2, 2), round((gb_["gf"] + ga_["ga"]) / 2, 2)] if ga_ and gb_ else None
+            none = {"ask": None, "bid": None}
+            just_out.append(dict(**{k: m[k] for k in ("id", "tour", "start", "a", "b", "ta", "tb")}, pa=none, pb=none, pt=none,
+                                 ma=round(pa, 4), md=round(pd, 4), mb=round(pb, 4), h2h=rec, xg=xg,
+                                 ea=round(R0[m["a"]], 1), eb=round(R0[m["b"]], 1)))
     h2h_out = [[k[0], k[1], *v] for k, v in h2h.items() if sum(v) >= 3]
     tours = defaultdict(lambda: dict(matches=0, draws=0, players=set()))
     for m in done:
@@ -489,7 +513,7 @@ def main():
         days=args.days, matches=len(done), firstMatch=done[0]["start"] if done else None, lastMatch=done[-1]["start"] if done else None,
         model=dict(**params, calibration=calib),
         tournaments=[dict(name=k, matches=v["matches"], drawRate=round(v["draws"] / max(1, v["matches"]), 3), players=len(v["players"])) for k, v in sorted(tours.items())],
-        players=players, upcoming=up, recent=recent, h2h=h2h_out, drafted=dmatch,
+        players=players, upcoming=up, justStarted=just_out, recent=recent, h2h=h2h_out, drafted=dmatch,
         links=dict(series=f"https://kalshi.com/markets/{SERIES.lower()}/{SPORT['kslug']}"),
     )
     OUT.parent.mkdir(parents=True, exist_ok=True)
