@@ -102,6 +102,7 @@ async function boot() {
   $("#theme-btn").addEventListener("click", () => { const r = document.documentElement; const cur = r.dataset.theme || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"); r.dataset.theme = cur === "dark" ? "light" : "dark"; try { localStorage.setItem("es-theme", r.dataset.theme); } catch (e) {} route(); });
   window.addEventListener("hashchange", route);
   route();
+  startLive();
 }
 try { const t = localStorage.getItem("es-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
 
@@ -354,5 +355,164 @@ function goalsPanel(p) {
 function closeModal() { destroy(modalCharts); $("#modal").hidden = true; document.body.style.overflow = ""; }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#modal").hidden) closeModal(); });
 document.addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
+
+/* ---------------- LIVE MODE: Kalshi + Drafted.gg through the radar-live Cloudflare Worker ---------------- */
+const PROXY = "https://radar-live.kenneth-tp.workers.dev";
+const LIVE = { on: false, last: null, err: null, busy: false, timer: null, ticks: 0 };
+const MONTHS = { JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5, JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11 };
+let H2H = null;   // "A|B" (sorted) -> [wins first, draws, wins second]
+
+function h2hKey(a, b) { return a < b ? a + "|" + b : b + "|" + a; }
+function buildH2H() { H2H = new Map(); D.h2h.forEach((r) => H2H.set(h2hKey(r[0], r[1]), [r[2], r[3], r[4]])); }
+function pairRec(a, b) { const r = H2H.get(h2hKey(a, b)) || [0, 0, 0]; return a < b ? r : [r[2], r[1], r[0]]; }
+function expected(ra, rb) { return 1 / (1 + Math.pow(10, (rb - ra) / 400)); }
+function modelProbs(a, b) {
+  const M = D.model, ra = P[a] ? P[a].elo : 1500, rb = P[b] ? P[b].elo : 1500;
+  const e = expected(ra, rb), pd0 = M.d0 * Math.exp(-Math.pow((ra - rb) / M.w, 2));
+  let pa = Math.max(1e-4, e - pd0 / 2), pb = Math.max(1e-4, 1 - e - pd0 / 2), pd = pd0;
+  const s = pa + pb + pd; pa /= s; pb /= s; pd /= s;
+  const rec = pairRec(a, b), n = rec[0] + rec[1] + rec[2], k = M.kPair || 40;
+  if (n) { pa = (rec[0] + k * pa) / (n + k); pd = (rec[1] + k * pd) / (n + k); pb = (rec[2] + k * pb) / (n + k); }
+  return { pa, pd, pb, rec, ra, rb };
+}
+const money = (x) => (x == null || x === "" ? null : Math.round(parseFloat(x) * 10000) / 10000);
+
+function parseKalshi(markets) {
+  const ev = new Map();
+  markets.forEach((m) => { const a = ev.get(m.event_ticker) || []; a.push(m); ev.set(m.event_ticker, a); });
+  const out = [];
+  ev.forEach((ms, et) => {
+    const suf = et.split("-")[1] || "";
+    if (!/^\d{2}[A-Z]{3}\d{6}[A-Z0-9]+$/.test(suf)) return;
+    const rules = ms[0].rules_primary || "";
+    const tour = (rules.match(/professional (.+?) \d{4} Week/) || [0, "?"])[1];
+    const tm = rules.match(/scheduled for (\w{3} \d{1,2}, \d{4}) at (\d{1,2}:\d{2} [AP]M) (E[SD]T)/);
+    let start;
+    if (tm) start = new Date(tm[1] + " " + tm[2] + (tm[3] === "EST" ? " GMT-0500" : " GMT-0400"));
+    else start = new Date(Date.UTC(2000 + +suf.slice(0, 2), MONTHS[suf.slice(2, 5)], +suf.slice(5, 7), +suf.slice(7, 9) + 5, +suf.slice(9, 11)));
+    let tie = null; const sides = {};
+    ms.forEach((m) => {
+      const code = m.ticker.split("-").pop();
+      if (code === "TIE") { tie = m; return; }
+      const t = (m.title || "").match(/^(.*) \((.+)\) wins$/);
+      if (t) sides[code] = { team: t[1], player: t[2], m };
+    });
+    const codes = Object.keys(sides);
+    if (codes.length !== 2 || !tie) return;
+    const rv = rules.match(/in the (.+?) \((.+?)\) vs (.+?) \((.+?)\) professional/);
+    if (rv) codes.sort((x) => (sides[x].player === rv[2] ? -1 : 1));
+    const A = sides[codes[0]], B = sides[codes[1]];
+    const res = A.m.result === "yes" ? "A" : B.m.result === "yes" ? "B" : tie.result === "yes" ? "T" : null;
+    const open = [A.m, B.m, tie].some((m) => m.status === "active");
+    out.push({ id: et, tour, start: start.toISOString().slice(0, 16) + "Z", a: A.player, b: B.player, ta: A.team, tb: B.team, res, open,
+      pa: { ask: money(A.m.yes_ask_dollars), bid: money(A.m.yes_bid_dollars) }, pb: { ask: money(B.m.yes_ask_dollars), bid: money(B.m.yes_bid_dollars) },
+      pt: { ask: money(tie.yes_ask_dollars), bid: money(tie.yes_bid_dollars) } });
+  });
+  return out;
+}
+
+async function getJSON(path) { const r = await fetch(PROXY + path, { cache: "no-store" }); if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }
+async function kalshiMarkets(q) {
+  let all = [], cursor = "";
+  for (let i = 0; i < 5; i++) {
+    const d = await getJSON("/kalshi/markets?series_ticker=KXESOCCERGAME&limit=1000&" + q + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""));
+    all = all.concat(d.markets || []); cursor = d.cursor;
+    if (!cursor || !(d.markets || []).length) break;
+  }
+  return all;
+}
+
+/* apply a newly settled match to ratings, records and lists */
+function applyResult(m) {
+  const K = D.model.K;
+  [m.a, m.b].forEach((n) => { if (!P[n]) { const p = { name: n, tours: [m.tour], gp: 0, w: 0, d: 0, l: 0, winPct: 0, ppg: 0, elo: 1500, elo24: 0, elo7: 0, form: "flat", trend: 0, streak: "", l10: "", l20w: 0, l20d: 0, l20l: 0, teams: [], hours: [], candles: [], log: [], goals: null, rank: 0 }; P[n] = p; D.players.push(p); } });
+  const A = P[m.a], B = P[m.b];
+  const s = m.res === "A" ? 1 : m.res === "T" ? 0.5 : 0, e = expected(A.elo, B.elo);
+  A.elo += K * (s - e); B.elo -= K * (s - e); A.elo24 += K * (s - e); B.elo24 -= K * (s - e); A.elo7 += K * (s - e); B.elo7 -= K * (s - e);
+  [[A, m.b, m.ta, s], [B, m.a, m.tb, 1 - s]].forEach(([p, opp, team, sc]) => {
+    const r = sc === 1 ? "W" : sc === 0.5 ? "D" : "L";
+    p.gp++; p[r === "W" ? "w" : r === "D" ? "d" : "l"]++; p.winPct = p.w / p.gp; p.ppg = (3 * p.w + p.d) / p.gp;
+    p.l10 = (p.l10 + r).slice(-10);
+    const m2 = p.streak.match(/^([WDL])(\d+)$/); p.streak = m2 && m2[1] === r ? r + (+m2[2] + 1) : r + "1";
+    p.log.push([m.start, opp, team, r, m.id, null]); if (p.log.length > 40) p.log.shift();
+    p.lastPlayed = m.start;
+  });
+  const key = h2hKey(m.a, m.b), rec = H2H.get(key) || [0, 0, 0];
+  const firstIsA = m.a < m.b; rec[m.res === "T" ? 1 : (m.res === "A") === firstIsA ? 0 : 2]++; H2H.set(key, rec);
+  D.recent.push({ id: m.id, tour: m.tour, start: m.start, a: m.a, b: m.b, ta: m.ta, tb: m.tb, res: m.res, score: null, h1: null });
+  if (D.recent.length > 400) D.recent.shift();
+  D.matches++; D.lastMatch = m.start;
+}
+
+/* scores for the current and previous hour from Drafted.gg */
+async function liveScores() {
+  const now = new Date(), from = new Date(now.getTime() - 2 * 3600e3);
+  const df = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate(), from.getUTCHours())).toISOString();
+  const dt = now.toISOString();
+  for (const slug of ["valkyrie-cup", "valhalla-cup"]) {
+    // the page lists at most 10 matches: read the last 2 hours in 20-minute slices
+    for (let t = new Date(df).getTime(); t < now.getTime(); t += 20 * 60e3) {
+      const a = new Date(t).toISOString(), b = new Date(Math.min(t + 20 * 60e3 - 1000, now.getTime())).toISOString();
+      try {
+        const r = await fetch(PROXY + "/drafted/" + slug + "?df=" + a + "&dt=" + b, { cache: "no-store" });
+        if (!r.ok) continue;
+        const html = (await r.text()).replace(/\\"/g, '"');
+        const re = /"children":"Match (\d+)"\}\],\["\$","\$L[0-9a-z]+",null,\{"date":"\$D([0-9T:.\-]+Z)"\}\],\["\$","div",null,\{"className":"[^"]*","children":"(\d+) - (\d+)"\}\]/g;
+        let m;
+        while ((m = re.exec(html))) {
+          const when = m[2].slice(0, 16) + "Z", sa = +m[3], sb = +m[4];
+          // players: the two names right before this match in the payload
+          const before = html.slice(Math.max(0, m.index - 4000), m.index);
+          const names = [...before.matchAll(/"uppercase text-3\.5xl[^"]*","children":"([^"]+)"/g)].map((x) => x[1]);
+          const after = html.slice(m.index, m.index + 4000);
+          const bName = (after.match(/"uppercase text-3\.5xl[^"]*","children":"([^"]+)"/) || [])[1];
+          const aName = names[names.length - 1];
+          if (!aName || !bName) continue;
+          const rec = D.recent.find((x) => !x.score && ((x.a === aName && x.b === bName) || (x.a === bName && x.b === aName)) && Math.abs(new Date(x.start) - new Date(when)) < 7 * 60e3);
+          if (rec) rec.score = rec.a === aName ? [sa, sb] : [sb, sa];
+        }
+      } catch (e) { /* skip slice */ }
+    }
+  }
+}
+
+async function liveTick(manual) {
+  if (LIVE.busy) return;
+  LIVE.busy = true; paintLive("updating…");
+  try {
+    if (!H2H) buildH2H();
+    const since = Math.floor((new Date(D.lastMatch || Date.now() - 3600e3).getTime() - 10 * 60e3) / 1000);
+    const [openM, closedM] = await Promise.all([kalshiMarkets("status=open"), kalshiMarkets("min_close_ts=" + since)]);
+    const seen = new Set(D.recent.map((m) => m.id));
+    parseKalshi(closedM).filter((m) => m.res && !seen.has(m.id)).sort((x, y) => x.start.localeCompare(y.start)).forEach(applyResult);
+    D.upcoming = parseKalshi(openM).filter((m) => m.open && !m.res).sort((x, y) => x.start.localeCompare(y.start)).map((m) => {
+      const pr = modelProbs(m.a, m.b);
+      const ga = P[m.a] && P[m.a].goals && P[m.a].goals.all, gb = P[m.b] && P[m.b].goals && P[m.b].goals.all;
+      return Object.assign(m, { ma: pr.pa, md: pr.pd, mb: pr.pb, h2h: pr.rec, ea: pr.ra, eb: pr.rb, xg: ga && gb ? [(ga.gf + gb.ga) / 2, (gb.gf + ga.ga) / 2] : null });
+    });
+    D.h2h = [...H2H.entries()].filter(([, v]) => v[0] + v[1] + v[2] >= 3).map(([k, v]) => [...k.split("|"), ...v]);
+    D.players.sort((a, b) => b.elo - a.elo).forEach((p, i) => (p.rank = i + 1));
+    if (manual || LIVE.ticks % 3 === 0) await liveScores();
+    LIVE.on = true; LIVE.err = null; LIVE.last = Date.now(); LIVE.ticks++;
+    if ($("#modal").hidden && !document.activeElement?.matches?.("input, select")) route();
+  } catch (e) {
+    LIVE.err = String(e.message || e);
+  } finally { LIVE.busy = false; paintLive(); }
+}
+function paintLive(msg) {
+  const el = $("#live-st"); if (!el) return;
+  if (msg) { el.textContent = msg; return; }
+  if (LIVE.err && !LIVE.on) { el.textContent = "snapshot only"; el.title = "Live data unavailable here: " + LIVE.err; return; }
+  const s = LIVE.last ? Math.round((Date.now() - LIVE.last) / 1000) : null;
+  el.innerHTML = `<span class="kal-live">●</span> Live · ${s == null ? "–" : s < 60 ? s + " s ago" : Math.round(s / 60) + " min ago"}`;
+}
+function startLive() {
+  const meta = $("#meta");
+  meta.insertAdjacentHTML("afterbegin", `<span id="live-st">connecting…</span><button class="theme-btn" id="refresh-btn" type="button">Refresh</button>`);
+  $("#refresh-btn").addEventListener("click", () => liveTick(true));
+  liveTick(true);
+  LIVE.timer = setInterval(() => { if (!document.hidden) liveTick(false); }, 20000);
+  setInterval(paintLive, 1000);
+}
 
 boot();

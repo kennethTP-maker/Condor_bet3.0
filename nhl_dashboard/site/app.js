@@ -157,6 +157,7 @@ async function boot() {
   $("#theme-btn").addEventListener("click", toggleTheme);
   window.addEventListener("hashchange", route);
   route();
+  startLive();
 }
 
 function toggleTheme() {
@@ -1251,6 +1252,55 @@ function viewAnalyst(app) {
   if (!H) app.querySelector(".view").insertAdjacentHTML("afterbegin", `<div class="loading" style="padding:10px;font-size:14px">Loading player vs goalie history… picks will sharpen in a moment.</div>`);
   bindOpeners(app);
   $("#ana-date").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { ana.date = b.dataset.d; route(); } });
+}
+
+/* ---------------- LIVE MODE: Kalshi prices through the radar-live Cloudflare Worker ---------------- */
+const PROXY = "https://radar-live.kenneth-tp.workers.dev";
+const LIVE = { on: false, last: null, err: null, busy: false, ticks: 0 };
+const LIVE_SERIES = ["KXNHLGOAL", "KXNHLPTS", "KXNHLAST", "KXNHLSAVE", "KXNHLGAME"];
+async function liveMarkets(series) {
+  let all = [], cursor = "";
+  for (let i = 0; i < 4; i++) {
+    const r = await fetch(PROXY + "/kalshi/markets?series_ticker=" + series + "&status=open&limit=1000" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""), { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const d = await r.json(); all = all.concat(d.markets || []); cursor = d.cursor;
+    if (!cursor || !(d.markets || []).length) break;
+  }
+  return all;
+}
+async function liveTick(manual) {
+  if (LIVE.busy || !D.kalshi) return;
+  LIVE.busy = true; paintLive("updating…");
+  try {
+    const byTicker = new Map();
+    for (const s of LIVE_SERIES) (await liveMarkets(s)).forEach((m) => byTicker.set(m.ticker, m));
+    const num = (x) => (x == null || x === "" ? null : Math.round(parseFloat(x) * 10000) / 10000);
+    let n = 0;
+    Object.values(D.kalshi.players).forEach((p) => ["goal", "pts", "ast", "save"].forEach((k) => (p[k] || []).forEach((m) => {
+      const x = byTicker.get(m.ticker); if (x) { m.ask = num(x.yes_ask_dollars); m.bid = num(x.yes_bid_dollars); n++; }
+    })));
+    Object.values(D.kalshi.games).forEach((g) => Object.values(g.win || {}).forEach((w) => {
+      const x = byTicker.get(w.ticker); if (x) { w.ask = num(x.yes_ask_dollars); w.bid = num(x.yes_bid_dollars); }
+    }));
+    D.kalshi.fetchedAt = new Date().toISOString();
+    LIVE.on = true; LIVE.err = null; LIVE.last = Date.now(); LIVE.ticks++; LIVE.n = n;
+    if ($("#modal").hidden && !document.activeElement?.matches?.("input, select")) route();
+  } catch (e) { LIVE.err = String(e.message || e); }
+  finally { LIVE.busy = false; paintLive(); }
+}
+function paintLive(msg) {
+  const el = $("#live-st"); if (!el) return;
+  if (msg) { el.textContent = msg; return; }
+  if (LIVE.err && !LIVE.on) { el.textContent = "snapshot only"; el.title = "Live prices unavailable here: " + LIVE.err; return; }
+  const s = LIVE.last ? Math.round((Date.now() - LIVE.last) / 1000) : null;
+  el.innerHTML = `<span class="kal-live">●</span> Live prices · ${s == null ? "–" : s < 60 ? s + " s ago" : Math.round(s / 60) + " min ago"}`;
+}
+function startLive() {
+  $("#meta").insertAdjacentHTML("afterbegin", `<span id="live-st">connecting…</span><button class="theme-btn" id="refresh-btn" type="button">Refresh</button>`);
+  $("#refresh-btn").addEventListener("click", () => liveTick(true));
+  liveTick(true);
+  setInterval(() => { if (!document.hidden) liveTick(false); }, 30000);
+  setInterval(paintLive, 1000);
 }
 
 boot();
