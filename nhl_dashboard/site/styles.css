@@ -322,3 +322,6 @@ td.pv-win { color: var(--up); font-weight: 700; background: color-mix(in srgb, v
 .pv-tag { font-size: 12px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--line-soft); color: var(--fg-2); }
 .pv-tag.ok { background: color-mix(in srgb, var(--up) 16%, transparent); color: var(--up); }
 .pv-tag.ko { background: color-mix(in srgb, var(--down) 16%, transparent); color: var(--down); }
+.pv { position: relative; }
+.pv-fire { position: absolute; top: 8px; right: 10px; font-size: 20px; line-height: 1; cursor: help; }
+.pv > .dim:first-of-type { padding-right: 26px; }
