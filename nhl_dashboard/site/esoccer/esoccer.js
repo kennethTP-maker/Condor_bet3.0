@@ -1,7 +1,10 @@
 /* eSoccer Radar — UI. Reads data/esoccer.json (built by fetch_esoccer.py). */
 "use strict";
 
-const DATA_URL = "data/esoccer.json";
+const DATA_URL = window.ES_DATA || "data/esoccer.json";
+/* sport settings come from the data file (eSoccer or eBasketball) */
+let SP = { key: "esoccer", name: "eSoccer Radar", series: "KXESOCCERGAME", kslug: "esoccer-game", draws: true, unit: "goal", drafted: ["valkyrie-cup", "valhalla-cup"], lines: [4.5, 5.5, 6.5] };
+const U = () => (SP.unit === "point" ? { one: "point", many: "points", Many: "Points", gf: "PF/G", ga: "PA/G", tot: "Pts/G" } : { one: "goal", many: "goals", Many: "Goals", gf: "GF/G", ga: "GA/G", tot: "Goals/G" });
 const FORM = {
   hot:  { label: "Hot",       icon: "🔥", cls: "f-hot",  v: "--hot" },
   up:   { label: "Improving", icon: "▲",  cls: "f-up",   v: "--up" },
@@ -15,7 +18,7 @@ const TAB_INTRO = {
   analyst: "For every upcoming match: our win/draw/loss probability, the Kalshi price, and the pick with the most value, with the reasons.",
   matches: "Upcoming matches with model vs Kalshi prices, and the latest results.",
   players: "Every player with record, Elo rating, form, streaks and last 10 results.",
-  h2h: "Head-to-head records between players who meet often — in eSoccer the same pairs play hundreds of times.",
+  h2h: "Head-to-head records between players who meet often — in these leagues the same pairs play hundreds of times.",
   method: "Where the data comes from, how the ratings and probabilities are calculated, and a backtest of their accuracy.",
 };
 
@@ -34,9 +37,9 @@ const dtShort = (iso) => new Date(iso).toLocaleString("en-US", { month: "short",
 const dShort = (iso) => new Date(iso + (iso.length === 10 ? "T12:00:00Z" : "")).toLocaleDateString("en-US", { month: "short", day: "2-digit" });
 const initials = (n) => n.slice(0, 2).toUpperCase();
 const minsTo = (iso) => Math.round((new Date(iso) - Date.now()) / 60000);
-const kUrl = (id) => `https://kalshi.com/markets/kxesoccergame/esoccer-game/${id.toLowerCase()}`;
+const kUrl = (id) => `https://kalshi.com/markets/${SP.series.toLowerCase()}/${SP.kslug}/${id.toLowerCase()}`;
 const kLink = (id) => `<a class="kal-link" href="${esc(kUrl(id))}" target="_blank" rel="noopener" title="Open the match on Kalshi">Kalshi</a>`;
-const tourShort = (t) => t.replace("Valhalla Cup 4", "VC4").replace("Valhalla Cup", "VC").replace("Valkyrie Cup", "VK");
+const tourShort = (t) => t.replace("Valhalla Cup 4", "VC4").replace("Valhalla Cup", "VC").replace("Valkyrie Cup", "VK").replace("Valhalla League", "VL");
 
 function chip(form) { const f = FORM[form] || FORM.flat; return `<span class="chip ${f.cls}"><span class="ic" aria-hidden="true">${f.icon}</span>${f.label}</span>`; }
 function chipMini(form) { const f = FORM[form] || FORM.flat; return `<span style="color:var(${f.v})" title="${f.label}">${f.icon}</span>`; }
@@ -94,10 +97,12 @@ async function boot() {
   try { const r = await fetch(DATA_URL, { cache: "no-cache" }); if (!r.ok) throw 0; D = await r.json(); }
   catch (e) { $("#app").innerHTML = `<div class="panel"><div class="empty">Could not load <code>${DATA_URL}</code>. Run <code>python nhl_dashboard/fetch_esoccer.py</code>.</div></div>`; return; }
   D.players.forEach((p) => (P[p.name] = p));
+  if (D.sport) { SP = D.sport; document.title = SP.name; const h = $(".brand h1"); if (h) h.textContent = SP.name; }
   const gen = new Date(D.generatedAt);
   $("#meta").innerHTML = `<span><span class="live-dot" aria-hidden="true"></span>Updated <b>${gen.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}</b></span>
     <span>Last result <b>${D.lastMatch ? dtShort(D.lastMatch) : "–"}</b></span>
     <span><a class="nhl-link" href="../">NHL Radar ↗</a></span>
+    <span>${SP.key === "ebasketball" ? '<a class="nhl-link" href="../esoccer/">eSoccer Radar ↗</a>' : '<a class="nhl-link" href="../ebasketball/">eBasketball Radar ↗</a>'}</span>
     <button class="theme-btn" id="theme-btn" type="button">Theme</button>`;
   $("#theme-btn").addEventListener("click", () => { const r = document.documentElement; const cur = r.dataset.theme || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"); r.dataset.theme = cur === "dark" ? "light" : "dark"; try { localStorage.setItem("es-theme", r.dataset.theme); } catch (e) {} route(); });
   window.addEventListener("hashchange", route);
@@ -114,7 +119,7 @@ function route() {
   const app = $("#app");
   ({ summary: viewSummary, analyst: viewAnalyst, matches: viewMatches, players: viewPlayers, h2h: viewH2H, method: viewMethod })[v](app);
   const view = app.querySelector(".view");
-  if (view && TAB_INTRO[v]) view.insertAdjacentHTML("afterbegin", `<p class="tab-intro">${TAB_INTRO[v]}</p>`);
+  if (view && TAB_INTRO[v]) view.insertAdjacentHTML("afterbegin", `<p class="tab-intro">${SP.draws ? TAB_INTRO[v] : TAB_INTRO[v].replace("win/draw/loss", "win/loss")}</p>`);
   app.querySelectorAll("[data-pl]").forEach((el) => el.addEventListener("click", (e) => { if (e.target.closest("a")) return; openPlayer(el.dataset.pl); }));
 }
 
@@ -122,7 +127,7 @@ function route() {
 function analyze(m) {
   const opts = [
     ["A", `${m.a} wins`, m.ma, m.pa.ask],
-    ["T", "Draw", m.md, m.pt.ask],
+    ...(SP.draws ? [["T", "Draw", m.md, m.pt.ask]] : []),
     ["B", `${m.b} wins`, m.mb, m.pb.ask],
   ].map(([k, label, p, ask]) => ({ k, label, p, ask, edge: ask != null && ask > 0 && ask < 1 ? p - ask : null }));
   const best = opts.filter((o) => o.edge != null).sort((x, y) => y.edge - x.edge)[0] || null;
@@ -135,14 +140,14 @@ function reasons(m, pick) {
   r.push(`<b>Value:</b> our ${pct(pick.p)} vs ${cents(pick.ask)} on Kalshi (${sgn(Math.round(pick.edge * 100))} pts).`);
   if (A && B) r.push(`Elo ${m.a} ${Math.round(m.ea)} vs ${m.b} ${Math.round(m.eb)} (${sgn(Math.round(m.ea - m.eb))}).`);
   const [hw, hd, hl] = m.h2h; const hn = hw + hd + hl;
-  if (hn) r.push(`Head-to-head: ${m.a} ${hw}W ${hd}D ${hl}L in ${hn} meetings.`);
+  if (hn) r.push(`Head-to-head: ${m.a} ${hw}W ${SP.draws ? hd + "D " : ""}${hl}L in ${hn} meetings.`);
   const ga = G(A, "d24"), gb = G(B, "d24");
   if (ga && gb && ga.n >= 3 && gb.n >= 3) r.push(`Last 24h: ${m.a} scores ${f2(ga.gf)} / concedes ${f2(ga.ga)} per game; ${m.b} ${f2(gb.gf)} / ${f2(gb.ga)}.`);
   const sub = pick.k === "B" ? B : pick.k === "A" ? A : null;
   if (sub) {
     if (sub.form === "hot" || sub.form === "up") r.push(`${FORM[sub.form].icon} ${sub.name} is ${FORM[sub.form].label.toLowerCase()}: last 10 ${sub.l10} (Elo ${sgn(sub.elo7, 0)} in 7 days).`);
     else r.push(`${sub.name} last 10: ${sub.l10}${sub.streak ? ` · streak ${sub.streak}` : ""}.`);
-  } else r.push(`Draws happen in ${pct(D.tournaments.find((t) => t.name === m.tour)?.drawRate)} of ${esc(m.tour)} matches.`);
+  } else if (SP.draws) r.push(`Draws happen in ${pct(D.tournaments.find((t) => t.name === m.tour)?.drawRate)} of ${esc(m.tour)} matches.`);
   return r;
 }
 function matchCard(m, withReasons = true) {
@@ -172,7 +177,7 @@ function viewSummary(app) {
     <section class="kpis">
       <div class="kpi"><div class="lbl">Players</div><div class="val">${pl.length}</div><div class="hint">${st.minGames}+ matches</div></div>
       <div class="kpi"><div class="lbl">Matches analyzed</div><div class="val">${D.matches.toLocaleString("en-US")}</div><div class="hint">last ${D.days} days</div></div>
-      <div class="kpi"><div class="lbl">Draw rate</div><div class="val">${pct(D.model.drawRate)}</div><div class="hint">all tournaments</div></div>
+      ${SP.draws ? `<div class="kpi"><div class="lbl">Draw rate</div><div class="val">${pct(D.model.drawRate)}</div><div class="hint">all tournaments</div></div>` : `<div class="kpi"><div class="lbl">Typical total</div><div class="val">${SP.lines ? Math.round(SP.lines[1] + 0.5) : "–"}</div><div class="hint">median points per game</div></div>`}
       <div class="kpi"><div class="lbl">Upcoming on Kalshi</div><div class="val">${upcomingOpen().length}</div><div class="hint">not started yet</div></div>
     </section>
     <section class="panel"><div class="panel-h"><h2>Form meter</h2><span class="sub">Elo change over 7 days + results vs expectation, last 10</span></div><div class="panel-b">
@@ -189,9 +194,9 @@ function viewSummary(app) {
     <div class="grid g2">${lists.map(([f, arr]) => `<section class="panel top-${f}"><div class="panel-h trend-head"><h3>${chip(f)}</h3></div><div class="panel-b"><div class="tlist">
       ${arr.map((p) => `<button class="trow" data-pl="${esc(p.name)}" type="button">${av(p.name)}<span><div class="nm">${esc(p.name)}</div><div class="sub">${p.tours.map(tourShort).join(", ")} · Elo ${Math.round(p.elo)} · streak ${p.streak}</div></span>${resStrip(p.l10)}<span class="delta ${p.elo7 >= 0 ? "pos" : "neg"}">${sgn(p.elo7)}</span></button>`).join("") || `<div class="empty">Nobody right now.</div>`}</div></div></section>`).join("")}</div>
     ${(() => { const rows = pl.filter((p) => G(p, "d24") && G(p, "d24").n >= 5).sort((a, b) => G(b, "d24").gf - G(a, "d24").gf).slice(0, 10);
-      return rows.length ? `<section class="panel"><div class="panel-h"><h2>Last 24 hours</h2><span class="sub">Drafted.gg scores · most goals scored per game (5+ matches)</span></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:560px">
-      <thead><tr><th class="l">Player</th><th>Matches</th><th>GF/G</th><th>GA/G</th><th>Goals/G</th><th>BTTS</th><th>O5.5</th></tr></thead><tbody>
-      ${rows.map((p) => { const g = G(p, "d24"); return `<tr data-pl="${esc(p.name)}"><td class="l"><span class="pl">${av(p.name)}<b>${esc(p.name)}</b> <span class="dim">${p.tours.map(tourShort).join(", ")}</span></span></td><td>${g.n}</td><td><b>${f2(g.gf)}</b></td><td>${f2(g.ga)}</td><td>${f2(g.tot)}</td><td>${pct(g.btts)}</td><td>${pct(g.o55)}</td></tr>`; }).join("")}</tbody></table></div></div></section>` : ""; })()}
+      return rows.length ? `<section class="panel"><div class="panel-h"><h2>Last 24 hours</h2><span class="sub">Drafted.gg scores · most ${U().many} scored per game (5+ matches)</span></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:560px">
+      <thead><tr><th class="l">Player</th><th>Matches</th><th>${U().gf}</th><th>${U().ga}</th><th>${U().tot}</th>${SP.draws ? "<th>BTTS</th>" : ""}<th>O${SP.lines[1]}</th></tr></thead><tbody>
+      ${rows.map((p) => { const g = G(p, "d24"); return `<tr data-pl="${esc(p.name)}"><td class="l"><span class="pl">${av(p.name)}<b>${esc(p.name)}</b> <span class="dim">${p.tours.map(tourShort).join(", ")}</span></span></td><td>${g.n}</td><td><b>${f2(g.gf)}</b></td><td>${f2(g.ga)}</td><td>${f2(g.tot)}</td>${SP.draws ? `<td>${pct(g.btts)}</td>` : ""}<td>${pct(g.ov ? g.ov[1] : g.o55)}</td></tr>`; }).join("")}</tbody></table></div></div></section>` : ""; })()}
     <section class="panel"><div class="panel-h"><h2>Tournaments</h2></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:420px"><thead><tr><th class="l">Tournament</th><th>Matches</th><th>Players</th><th>Draw rate</th></tr></thead><tbody>
       ${D.tournaments.map((t) => `<tr style="cursor:default"><td class="l">${esc(t.name)}</td><td>${t.matches.toLocaleString("en-US")}</td><td>${t.players}</td><td>${pct(t.drawRate)}</td></tr>`).join("")}</tbody></table></div></div></section>
   </div>`;
@@ -204,7 +209,7 @@ function viewAnalyst(app) {
   const withVal = analyzed.filter((x) => x.a.best && x.a.best.edge >= 0.02).sort((x, y) => y.a.best.edge - x.a.best.edge);
   app.innerHTML = `<div class="view">
     <section class="panel"><div class="panel-b" style="display:grid;gap:10px">
-      <div style="font-size:13px;color:var(--fg-2)">For each upcoming match the analyst compares our win / draw / loss probabilities with the Kalshi Yes prices and picks the outcome with the biggest edge (only if it beats the price by 2+ points). Prices are a snapshot from the last update; matches start every few minutes, so always open <b>Kalshi</b> for the live price.</div>
+      <div style="font-size:13px;color:var(--fg-2)">For each upcoming match the analyst compares our ${SP.draws ? "win / draw / loss" : "win / loss"} probabilities with the Kalshi Yes prices and picks the outcome with the biggest edge (only if it beats the price by 2+ points). Prices are a snapshot from the last update; matches start every few minutes, so always open <b>Kalshi</b> for the live price.</div>
       ${tourSeg("tour-seg")}
       <div class="legend"><span class="rt rt-strong">Strong</span> +6 pts or more <span class="rt rt-good">Good</span> +3.5 to +6 <span class="rt rt-mod">Moderate</span> +2 to +3.5</div>
     </div></section>
@@ -222,12 +227,12 @@ function viewMatches(app) {
   const resTxt = (m) => (m.res === "A" ? `<b>${esc(m.a)}</b> won` : m.res === "B" ? `<b>${esc(m.b)}</b> won` : "Draw");
   app.innerHTML = `<div class="view">
     <div>${tourSeg("tour-seg")}</div>
-    <section class="panel"><div class="panel-h"><h2>Upcoming</h2><span class="sub">Ours vs Kalshi Yes price · A / Draw / B</span></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:900px">
-      <thead><tr><th class="l">Start</th><th class="l">Tournament</th><th class="l">Match</th><th>A ours</th><th>A Kalshi</th><th>Draw ours</th><th>Draw Kalshi</th><th>B ours</th><th>B Kalshi</th><th class="l">H2H (A-D-B)</th><th title="Expected goals from each player's scoring and conceding averages">Exp. score</th><th class="l"></th></tr></thead>
+    <section class="panel"><div class="panel-h"><h2>Upcoming</h2><span class="sub">Ours vs Kalshi Yes price · ${SP.draws ? "A / Draw / B" : "A / B"}</span></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:900px">
+      <thead><tr><th class="l">Start</th><th class="l">Tournament</th><th class="l">Match</th><th>A ours</th><th>A Kalshi</th>${SP.draws ? "<th>Draw ours</th><th>Draw Kalshi</th>" : ""}<th>B ours</th><th>B Kalshi</th><th class="l">H2H (${SP.draws ? "A-D-B" : "A-B"})</th><th title="Expected score from each player's scoring and conceding averages">Exp. score</th><th class="l"></th></tr></thead>
       <tbody>${ups.map((m) => `<tr style="cursor:default${started(m) ? ";opacity:.55" : ""}"><td class="l">${tShort(m.start)}${started(m) ? ' <span class="kal-live">● live</span>' : ""}</td><td class="l">${tourShort(m.tour)}</td>
         <td class="l"><span data-pl="${esc(m.a)}" style="cursor:pointer;font-weight:600">${esc(m.a)}</span> <span class="dim">(${esc(m.ta)})</span> vs <span data-pl="${esc(m.b)}" style="cursor:pointer;font-weight:600">${esc(m.b)}</span> <span class="dim">(${esc(m.tb)})</span></td>
-        <td class="pct">${pct(m.ma)}</td><td>${cents(m.pa.ask)} ${started(m) ? "" : edgeCell(m.ma, m.pa.ask)}</td><td class="pct">${pct(m.md)}</td><td>${cents(m.pt.ask)} ${started(m) ? "" : edgeCell(m.md, m.pt.ask)}</td><td class="pct">${pct(m.mb)}</td><td>${cents(m.pb.ask)} ${started(m) ? "" : edgeCell(m.mb, m.pb.ask)}</td>
-        <td class="l">${m.h2h.join("-")}</td><td>${m.xg ? `${m.xg[0].toFixed(1)}–${m.xg[1].toFixed(1)}` : "–"}</td><td class="l">${kLink(m.id)}</td></tr>`).join("") || `<tr><td colspan="12"><div class="empty">No upcoming matches listed.</div></td></tr>`}</tbody></table></div>
+        <td class="pct">${pct(m.ma)}</td><td>${cents(m.pa.ask)} ${started(m) ? "" : edgeCell(m.ma, m.pa.ask)}</td>${SP.draws ? `<td class="pct">${pct(m.md)}</td><td>${cents(m.pt.ask)} ${started(m) ? "" : edgeCell(m.md, m.pt.ask)}</td>` : ""}<td class="pct">${pct(m.mb)}</td><td>${cents(m.pb.ask)} ${started(m) ? "" : edgeCell(m.mb, m.pb.ask)}</td>
+        <td class="l">${SP.draws ? m.h2h.join("-") : m.h2h[0] + "-" + m.h2h[2]}</td><td>${m.xg ? `${m.xg[0].toFixed(1)}–${m.xg[1].toFixed(1)}` : "–"}</td><td class="l">${kLink(m.id)}</td></tr>`).join("") || `<tr><td colspan="12"><div class="empty">No upcoming matches listed.</div></td></tr>`}</tbody></table></div>
       <p class="chart-note">Matches that already started at the last update are dimmed; their prices were in-game.</p></div></section>
     <section class="panel"><div class="panel-h"><h2>Latest results</h2></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:640px">
       <thead><tr><th class="l">Time</th><th class="l">Tournament</th><th class="l">Match</th><th class="l">Score</th><th class="l">Result</th></tr></thead>
@@ -236,27 +241,30 @@ function viewMatches(app) {
   bindTour("tour-seg");
 }
 
-const COLS = [["rank", "#"], ["name", "Player", "l"], ["tours", "Tournament", "l"], ["gp", "GP"], ["w", "W"], ["d", "D"], ["l", "L"], ["winPct", "Win%"], ["ppg", "Pts/GP"],
-  ["elo", "Elo"], ["elo24", "Elo 24h"], ["elo7", "Elo 7d"], ["gf", "GF/G"], ["ga", "GA/G"], ["tot", "Goals/G"], ["btts", "BTTS"], ["o55", "O5.5"],
-  ["l10", "Last 10", "l"], ["streak", "Streak"], ["form", "Form", "l"]];
+function COLS_() {
+  const u = U();
+  return [["rank", "#"], ["name", "Player", "l"], ["tours", "Tournament", "l"], ["gp", "GP"], ["w", "W"], ...(SP.draws ? [["d", "D"]] : []), ["l", "L"], ["winPct", "Win%"], ...(SP.draws ? [["ppg", "Pts/GP"]] : []),
+    ["elo", "Elo"], ["elo24", "Elo 24h"], ["elo7", "Elo 7d"], ["gf", u.gf], ["ga", u.ga], ["tot", u.tot], ...(SP.draws ? [["btts", "BTTS"]] : []), ["ovm", "O" + SP.lines[1]],
+    ["l10", "Last 10", "l"], ["streak", "Streak"], ["form", "Form", "l"]];
+}
 const FORD = { hot: 4, up: 3, flat: 2, down: 1, cold: 0 };
 function viewPlayers(app) {
   app.innerHTML = `<div class="view"><section class="panel"><div class="panel-h"><h2>Players</h2><span class="sub" id="pc"></span></div><div class="panel-b" style="display:grid;gap:14px">
     <div class="filters"><label class="fld">Search<input type="search" id="q" value="${esc(st.q)}" placeholder="Name…"></label><div class="fld">Tournament${tourSeg("tour-seg")}</div>
       <label class="fld">Min. GP <input type="number" id="mg" min="0" value="${st.minGames}" style="width:72px"></label></div>
-    <div class="tbl-wrap"><table class="tbl" id="pt"><thead><tr>${COLS.map(([k, l, a]) => `<th class="${a || ""}" data-k="${k}" ${st.sort === k ? `aria-sort="${st.dir < 0 ? "descending" : "ascending"}"` : ""}>${l}</th>`).join("")}</tr></thead><tbody></tbody></table></div>
+    <div class="tbl-wrap"><table class="tbl" id="pt"><thead><tr>${COLS_().map(([k, l, a]) => `<th class="${a || ""}" data-k="${k}" ${st.sort === k ? `aria-sort="${st.dir < 0 ? "descending" : "ascending"}"` : ""}>${l}</th>`).join("")}</tr></thead><tbody></tbody></table></div>
   </div></section></div>`;
   const draw = () => {
     const q = st.q.toLowerCase();
     const rows = D.players.filter((p) => inTour(p) && p.gp >= st.minGames && (!q || p.name.toLowerCase().includes(q)));
     const k = st.sort;
-    const val = (p) => (k === "form" ? FORD[p.form] : k === "tours" ? p.tours.join() : ["gf", "ga", "tot", "btts", "o55"].includes(k) ? (G(p) ? G(p)[k] : -1) : p[k]);
+    const val = (p) => (k === "form" ? FORD[p.form] : k === "tours" ? p.tours.join() : k === "ovm" ? (G(p) && G(p).ov ? G(p).ov[1] : -1) : ["gf", "ga", "tot", "btts"].includes(k) ? (G(p) ? G(p)[k] : -1) : p[k]);
     rows.sort((a, b) => { const x = val(a), y = val(b); return (typeof x === "string" ? x.localeCompare(y) : x - y) * st.dir; });
     $("#pc").textContent = `${rows.length} players`;
     $("#pt tbody").innerHTML = rows.map((p) => `<tr data-pl="${esc(p.name)}"><td>${p.rank}</td><td class="l"><span class="pl">${av(p.name)}<b>${esc(p.name)}</b></span></td><td class="l">${p.tours.map(tourShort).join(", ")}</td>
-      <td>${p.gp}</td><td>${p.w}</td><td>${p.d}</td><td>${p.l}</td><td><b>${pct(p.winPct)}</b></td><td>${p.ppg.toFixed(2)}</td><td><b>${Math.round(p.elo)}</b></td>
+      <td>${p.gp}</td><td>${p.w}</td>${SP.draws ? `<td>${p.d}</td>` : ""}<td>${p.l}</td><td><b>${pct(p.winPct)}</b></td>${SP.draws ? `<td>${p.ppg.toFixed(2)}</td>` : ""}<td><b>${Math.round(p.elo)}</b></td>
       <td class="${p.elo24 >= 0 ? "pos" : "neg"}">${sgn(p.elo24)}</td><td class="${p.elo7 >= 0 ? "pos" : "neg"}">${sgn(p.elo7)}</td>
-      <td>${f2(G(p)?.gf)}</td><td>${f2(G(p)?.ga)}</td><td><b>${f2(G(p)?.tot)}</b></td><td>${pct(G(p)?.btts)}</td><td>${pct(G(p)?.o55)}</td><td class="l">${resStrip(p.l10)}</td><td>${esc(p.streak)}</td><td class="l">${chip(p.form)}</td></tr>`).join("") || `<tr><td colspan="20"><div class="empty">No players match.</div></td></tr>`;
+      <td>${f2(G(p)?.gf)}</td><td>${f2(G(p)?.ga)}</td><td><b>${f2(G(p)?.tot)}</b></td>${SP.draws ? `<td>${pct(G(p)?.btts)}</td>` : ""}<td>${pct(G(p)?.ov ? G(p).ov[1] : G(p)?.o55)}</td><td class="l">${resStrip(p.l10)}</td><td>${esc(p.streak)}</td><td class="l">${chip(p.form)}</td></tr>`).join("") || `<tr><td colspan="20"><div class="empty">No players match.</div></td></tr>`;
     $("#pt tbody").querySelectorAll("[data-pl]").forEach((el) => el.addEventListener("click", () => openPlayer(el.dataset.pl)));
   };
   $("#q").addEventListener("input", (e) => { st.q = e.target.value; draw(); });
@@ -273,10 +281,10 @@ function viewH2H(app) {
     .map((r) => ({ ...r, n: r.w + r.d + r.l })).sort((a, b) => b.n - a.n);
   app.innerHTML = `<div class="view"><section class="panel"><div class="panel-h"><h2>Head-to-head</h2></div><div class="panel-b" style="display:grid;gap:14px">
     <div class="filters"><div class="fld">Tournament${tourSeg("tour-seg")}</div><label class="fld">Player<select id="ha">${names.map((n) => `<option ${n === st.h2hA ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label></div>
-    <div class="tbl-wrap"><table class="tbl" style="min-width:560px"><thead><tr><th class="l">Opponent</th><th>Meetings</th><th>W</th><th>D</th><th>L</th><th>Win%</th><th class="l">Share</th></tr></thead><tbody>
-      ${rows.map((r) => `<tr data-pl="${esc(r.opp)}"><td class="l"><span class="pl">${av(r.opp)}<b>${esc(r.opp)}</b></span></td><td>${r.n}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td><b>${pct(r.w / r.n)}</b></td>
+    <div class="tbl-wrap"><table class="tbl" style="min-width:560px"><thead><tr><th class="l">Opponent</th><th>Meetings</th><th>W</th>${SP.draws ? "<th>D</th>" : ""}<th>L</th><th>Win%</th><th class="l">Share</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr data-pl="${esc(r.opp)}"><td class="l"><span class="pl">${av(r.opp)}<b>${esc(r.opp)}</b></span></td><td>${r.n}</td><td>${r.w}</td>${SP.draws ? `<td>${r.d}</td>` : ""}<td>${r.l}</td><td><b>${pct(r.w / r.n)}</b></td>
         <td class="l"><span style="display:inline-flex;width:160px;height:10px;border-radius:5px;overflow:hidden;gap:1px"><i style="flex:${r.w};background:var(--up)"></i><i style="flex:${r.d};background:var(--gold)"></i><i style="flex:${r.l};background:var(--down)"></i></span></td></tr>`).join("") || `<tr><td colspan="7"><div class="empty">No opponents with 3+ meetings.</div></td></tr>`}</tbody></table></div>
-    <div class="legend"><span class="st-res"><i class="W"></i></span> Win <span class="st-res"><i class="OTL"></i></span> Draw <span class="st-res"><i class="L"></i></span> Loss</div>
+    <div class="legend"><span class="st-res"><i class="W"></i></span> Win ${SP.draws ? '<span class="st-res"><i class="OTL"></i></span> Draw ' : ""}<span class="st-res"><i class="L"></i></span> Loss</div>
   </div></section></div>`;
   bindTour("tour-seg");
   $("#ha").addEventListener("change", (e) => { st.h2hA = e.target.value; route(); });
@@ -288,19 +296,19 @@ function viewMethod(app) {
     <tbody>${rows.map((r) => `<tr style="cursor:default"><td class="l">${Math.round(r[0] * 100)}–${Math.min(100, Math.round(r[1] * 100))}%</td><td>${r[2].toLocaleString("en-US")}</td><td>${pct(r[3])}</td><td><b>${pct(r[4])}</b></td><td class="${Math.abs(r[4] - r[3]) <= 0.03 ? "pos" : "neg"}">${sgn((r[4] - r[3]) * 100, 1)} pts</td></tr>`).join("")}</tbody></table></div>`;
   app.innerHTML = `<div class="view"><section class="panel"><div class="panel-b method">
     <h3>Source</h3>
-    <p>Kalshi's public API, series <code>KXESOCCERGAME</code> (eSoccer Game), settled by Drafted.gg. Every match is one Kalshi event with three markets (player A wins, player B wins, draw). Settled markets give the result; open markets give the current Yes price. We keep the last ${D.days} days: ${D.matches.toLocaleString("en-US")} matches from ${dtShort(D.firstMatch)} to ${dtShort(D.lastMatch)}. Tournaments are EA Sports FC matches of 2×4 minutes played around the clock.</p>
-    <p>Scores come from Drafted.gg's own results pages (the organizer that settles the Kalshi markets), read hour by hour: final score, goals per half and kick-off time. They are matched to the Kalshi results by players and kick-off time. Last run: ${D.drafted ? `${D.drafted.drafted.toLocaleString("en-US")} Drafted matches, ${D.drafted.matched.toLocaleString("en-US")} matched to Kalshi, result agreement ${D.drafted.matched ? pct(D.drafted.agree / D.drafted.matched) : "–"}` : "not available"}. Goal stats (GF/G, GA/G, totals, both teams to score, overs) use only matches with a stored score; ratings and probabilities use every Kalshi result.</p>
+    <p>Kalshi's public API, series <code>${SP.series}</code> (${SP.unit === "point" ? "eBasketball" : "eSoccer"} Game), settled by Drafted.gg. Every match is one Kalshi event with ${SP.draws ? "three markets (player A wins, player B wins, draw)" : "two markets (player A wins, player B wins)"}. Settled markets give the result; open markets give the current Yes price. We keep the last ${D.days} days: ${D.matches.toLocaleString("en-US")} matches from ${dtShort(D.firstMatch)} to ${dtShort(D.lastMatch)}. ${SP.unit === "point" ? "The Valhalla League plays NBA 2K games around the clock." : "Tournaments are EA Sports FC matches of 2×4 minutes played around the clock."}</p>
+    <p>Scores come from Drafted.gg's own results pages (the organizer that settles the Kalshi markets), read hour by hour: final score, ${SP.unit === "point" ? "points per quarter" : "goals per half"} and kick-off time. They are matched to the Kalshi results by players and kick-off time. Last run: ${D.drafted ? `${D.drafted.drafted.toLocaleString("en-US")} Drafted matches, ${D.drafted.matched.toLocaleString("en-US")} matched to Kalshi, result agreement ${D.drafted.matched ? pct(D.drafted.agree / D.drafted.matched) : "–"}` : "not available"}. ${U().Many} stats (${U().gf}, ${U().ga}, totals${SP.draws ? ", both teams to score" : ""}, overs) use only matches with a stored score; ratings and probabilities use every Kalshi result.</p>
     <h3>Elo rating</h3>
-    <p>Every player starts at 1500. After each match the winner takes points from the loser in proportion to how surprising the result was (K = ${M.K}, larger for a player's first 20 matches). A draw moves ratings toward each other. The <b>Elo 24h / 7d</b> columns are the change over the last day and week.</p>
-    <h3>Win / draw / loss probability</h3>
-    <p>The Elo gap gives the expected score. The draw chance is ${pct(M.d0)} for evenly matched players and shrinks as the gap grows (width ${M.w} Elo). Because the same pairs meet hundreds of times, the result is then blended with that pair's own head-to-head record, with a weight of ${M.kPair} matches for the Elo prior. All parameters were chosen by minimizing log-loss on the history.</p>
+    <p>Every player starts at 1500. After each match the winner takes points from the loser in proportion to how surprising the result was (K = ${M.K}, larger for a player's first 20 matches). ${SP.draws ? "A draw moves ratings toward each other." : ""} The <b>Elo 24h / 7d</b> columns are the change over the last day and week.</p>
+    <h3>${SP.draws ? "Win / draw / loss" : "Win / loss"} probability</h3>
+    <p>The Elo gap gives the expected score.${SP.draws ? ` The draw chance is ${pct(M.d0)} for evenly matched players and shrinks as the gap grows (width ${M.w} Elo).` : ""} Because the same pairs meet hundreds of times, the result is then blended with that pair's own head-to-head record, with a weight of ${M.kPair} matches for the Elo prior. All parameters were chosen by minimizing log-loss on the history.</p>
     <h3>Form</h3>
     <p>Combines the Elo change over 7 days with results above or below expectation in the last 10 matches. ${chip("hot")} strong rise, ${chip("up")} rising, ${chip("flat")} steady, ${chip("down")} falling, ${chip("cold")} sharp drop.</p>
     <h3>Analyst and edge</h3>
     <p><b>Edge</b> = our probability − the Kalshi Yes price. The analyst picks the outcome with the largest edge if it is at least +2 points: Strong +6 or more, Good +3.5 to +6, Moderate +2 to +3.5. It excludes fees and anything the price already knows.</p>
     <h3>How accurate is it? (backtest)</h3>
     <p>Each match was predicted using only the matches before it (${c.n.toLocaleString("en-US")} predictions, players with 10+ prior matches). Multiclass Brier score: ${c.brier} (lower is better; always guessing the average rates scores ${c.brierBase ?? "–"}). Log-loss: ${M.logloss}.</p>
-    ${tb(c.win, "Player A wins")}${tb(c.draw, "Draw")}
+    ${tb(c.win, "Player A wins")}${SP.draws && c.draw.length ? tb(c.draw, "Draw") : ""}
     <h3>Updates and limits</h3>
     <p>New matches start every few minutes, so the prices here are a snapshot of the last update. Use the <b>Kalshi</b> link for the live price. These are statistical estimates, not guarantees.</p>
   </div></section></div>`;
@@ -317,17 +325,17 @@ function openPlayer(name) {
   sh.innerHTML = `
     <div class="sheet-h">${av(name, "lg")}<div><h2 id="sheet-title">${esc(name)}</h2><div class="facts"><span>${p.tours.join(", ")}</span><span>#${p.rank} by Elo</span>${chip(p.form)}<span>Streak ${esc(p.streak)}</span></div></div>
       <button class="close" type="button" aria-label="Close">×</button></div>
-    <div class="statline">${[["GP", p.gp], ["W-D-L", `${p.w}-${p.d}-${p.l}`], ["Win%", pct(p.winPct)], ["Pts/GP", p.ppg.toFixed(2)], ["Elo", Math.round(p.elo)], ["Elo 24h", sgn(p.elo24)], ["Elo 7d", sgn(p.elo7)], ["Last 20", `${p.l20w}-${p.l20d}-${p.l20l}`]].map(([l, v]) => `<div><small>${l}</small><b>${v}</b></div>`).join("")}</div>
+    <div class="statline">${[["GP", p.gp], ...(SP.draws ? [["W-D-L", `${p.w}-${p.d}-${p.l}`], ["Win%", pct(p.winPct)], ["Pts/GP", p.ppg.toFixed(2)]] : [["W-L", `${p.w}-${p.l}`], ["Win%", pct(p.winPct)], [U().gf, p.goals && p.goals.all ? p.goals.all.gf.toFixed(1) : "–"]]), ["Elo", Math.round(p.elo)], ["Elo 24h", sgn(p.elo24)], ["Elo 7d", sgn(p.elo7)], ["Last 20", SP.draws ? `${p.l20w}-${p.l20d}-${p.l20l}` : `${p.l20w}-${p.l20l}`]].map(([l, v]) => `<div><small>${l}</small><b>${v}</b></div>`).join("")}</div>
     ${goalsPanel(p)}
     <section class="panel"><div class="panel-h"><h3>Next matches</h3></div><div class="panel-b"><div class="ana-top">${next.map((m) => matchCard(m)).join("") || `<div class="empty">No upcoming match listed on Kalshi.</div>`}</div></div></section>
     <section class="panel"><div class="panel-h"><h3>Daily Elo candles</h3><span class="sub">Green = rating rose that day</span></div><div class="panel-b"><div class="chart-box"><canvas id="m-c"></canvas></div></div></section>
     <div class="grid g2">
       <section class="panel"><div class="panel-h"><h3>Win% by hour (your time)</h3></div><div class="panel-b"><div class="chart-box short"><canvas id="m-h"></canvas></div></div></section>
-      <section class="panel"><div class="panel-h"><h3>Teams used</h3></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:0"><thead><tr><th class="l">Team</th><th>W</th><th>D</th><th>L</th><th>Win%</th></tr></thead><tbody>
-        ${p.teams.map((t) => `<tr style="cursor:default"><td class="l">${esc(t[0])}</td><td>${t[1]}</td><td>${t[2]}</td><td>${t[3]}</td><td><b>${pct(t[1] / (t[1] + t[2] + t[3]))}</b></td></tr>`).join("")}</tbody></table></div></div></section>
+      <section class="panel"><div class="panel-h"><h3>Teams used</h3></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:0"><thead><tr><th class="l">Team</th><th>W</th>${SP.draws ? "<th>D</th>" : ""}<th>L</th><th>Win%</th></tr></thead><tbody>
+        ${p.teams.map((t) => `<tr style="cursor:default"><td class="l">${esc(t[0])}</td><td>${t[1]}</td>${SP.draws ? `<td>${t[2]}</td>` : ""}<td>${t[3]}</td><td><b>${pct(t[1] / (t[1] + t[2] + t[3]))}</b></td></tr>`).join("")}</tbody></table></div></div></section>
     </div>
-    <section class="panel"><div class="panel-h"><h3>Most frequent opponents</h3></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:0"><thead><tr><th class="l">Opponent</th><th>W</th><th>D</th><th>L</th><th>Win%</th></tr></thead><tbody>
-      ${opp.map((o) => `<tr style="cursor:default"><td class="l">${esc(o[0])}</td><td>${o[1]}</td><td>${o[2]}</td><td>${o[3]}</td><td><b>${pct(o[1] / (o[1] + o[2] + o[3]))}</b></td></tr>`).join("")}</tbody></table></div></div></section>
+    <section class="panel"><div class="panel-h"><h3>Most frequent opponents</h3></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:0"><thead><tr><th class="l">Opponent</th><th>W</th>${SP.draws ? "<th>D</th>" : ""}<th>L</th><th>Win%</th></tr></thead><tbody>
+      ${opp.map((o) => `<tr style="cursor:default"><td class="l">${esc(o[0])}</td><td>${o[1]}</td>${SP.draws ? `<td>${o[2]}</td>` : ""}<td>${o[3]}</td><td><b>${pct(o[1] / (o[1] + o[2] + o[3]))}</b></td></tr>`).join("")}</tbody></table></div></div></section>
     <section class="panel"><div class="panel-h"><h3>Last matches</h3></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:0"><thead><tr><th class="l">Time</th><th class="l">Opponent</th><th class="l">Team</th><th class="l">Score</th><th class="l">Result</th></tr></thead><tbody>
       ${p.log.slice(-15).reverse().map((r) => `<tr style="cursor:default"><td class="l">${dtShort(r[0])}</td><td class="l">${esc(r[1])}</td><td class="l">${esc(r[2])}</td><td class="l">${r[5] ? `${r[5][0]}–${r[5][1]}` : "–"}</td><td class="l">${resStrip(r[3])} ${r[3]}</td></tr>`).join("")}</tbody></table></div></div></section>`;
   $("#modal").hidden = false; document.body.style.overflow = "hidden"; sh.scrollTop = 0;
@@ -346,10 +354,10 @@ function goalsPanel(p) {
   if (!p.goals) return `<section class="panel"><div class="panel-b dim">No Drafted.gg scores for this player in the stored window yet.</div></section>`;
   const cols = [["d24", "Last 24 h"], ["l10", "Last 10 scored"], ["all", `All scored (${p.goals.all.n})`]];
   const row = (lbl, f) => `<tr style="cursor:default"><td class="l">${lbl}</td>${cols.map(([k]) => `<td>${p.goals[k] ? f(p.goals[k]) : "–"}</td>`).join("")}</tr>`;
-  return `<section class="panel"><div class="panel-h"><h3>Goals</h3><span class="sub">From Drafted.gg match scores</span></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:0">
+  return `<section class="panel"><div class="panel-h"><h3>${U().Many}</h3><span class="sub">From Drafted.gg match scores</span></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:0">
     <thead><tr><th class="l"></th>${cols.map(([, l]) => `<th>${l}</th>`).join("")}</tr></thead><tbody>
-    ${row("Matches", (g) => g.n)}${row("Goals for / game", (g) => `<b>${f2(g.gf)}</b>`)}${row("Goals against / game", (g) => f2(g.ga))}${row("Total goals / game", (g) => `<b>${f2(g.tot)}</b>`)}
-    ${row("1st-half goals for", (g) => f2(g.h1gf))}${row("Both score", (g) => pct(g.btts))}${row("Over 4.5", (g) => pct(g.o45))}${row("Over 5.5", (g) => pct(g.o55))}${row("Over 6.5", (g) => pct(g.o65))}${row("Clean sheet", (g) => pct(g.cs))}
+    ${row("Matches", (g) => g.n)}${row(`${U().Many} for / game`, (g) => `<b>${f2(g.gf)}</b>`)}${row(`${U().Many} against / game`, (g) => f2(g.ga))}${row(`Total ${U().many} / game`, (g) => `<b>${f2(g.tot)}</b>`)}
+    ${row(`1st-half ${U().many} for`, (g) => f2(g.h1gf))}${SP.draws ? row("Both score", (g) => pct(g.btts)) : ""}${SP.lines.map((ln, i) => row("Over " + ln, (g) => pct(g.ov ? g.ov[i] : g[["o45", "o55", "o65"][i]]))).join("")}${SP.draws ? row("Clean sheet", (g) => pct(g.cs)) : ""}
     </tbody></table></div></div></section>`;
 }
 function closeModal() { destroy(modalCharts); $("#modal").hidden = true; document.body.style.overflow = ""; }
@@ -398,12 +406,13 @@ function parseKalshi(markets) {
       if (t) sides[code] = { team: t[1], player: t[2], m };
     });
     const codes = Object.keys(sides);
-    if (codes.length !== 2 || !tie) return;
+    if (codes.length !== 2 || (SP.draws && !tie)) return;
+    tie = tie || {};
     const rv = rules.match(/in the (.+?) \((.+?)\) vs (.+?) \((.+?)\) professional/);
     if (rv) codes.sort((x) => (sides[x].player === rv[2] ? -1 : 1));
     const A = sides[codes[0]], B = sides[codes[1]];
     const res = A.m.result === "yes" ? "A" : B.m.result === "yes" ? "B" : tie.result === "yes" ? "T" : null;
-    const open = [A.m, B.m, tie].some((m) => m.status === "active");
+    const open = [A.m, B.m, tie].some((m) => m && m.status === "active");
     out.push({ id: et, tour, start: start.toISOString().slice(0, 16) + "Z", a: A.player, b: B.player, ta: A.team, tb: B.team, res, open,
       pa: { ask: money(A.m.yes_ask_dollars), bid: money(A.m.yes_bid_dollars) }, pb: { ask: money(B.m.yes_ask_dollars), bid: money(B.m.yes_bid_dollars) },
       pt: { ask: money(tie.yes_ask_dollars), bid: money(tie.yes_bid_dollars) } });
@@ -415,7 +424,7 @@ async function getJSON(path) { const r = await fetch(PROXY + path, { cache: "no-
 async function kalshiMarkets(q) {
   let all = [], cursor = "";
   for (let i = 0; i < 5; i++) {
-    const d = await getJSON("/kalshi/markets?series_ticker=KXESOCCERGAME&limit=1000&" + q + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""));
+    const d = await getJSON("/kalshi/markets?series_ticker=" + SP.series + "&limit=1000&" + q + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""));
     all = all.concat(d.markets || []); cursor = d.cursor;
     if (!cursor || !(d.markets || []).length) break;
   }
@@ -449,7 +458,7 @@ async function liveScores() {
   const now = new Date(), from = new Date(now.getTime() - 2 * 3600e3);
   const df = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate(), from.getUTCHours())).toISOString();
   const dt = now.toISOString();
-  for (const slug of ["valkyrie-cup", "valhalla-cup"]) {
+  for (const slug of SP.drafted) {
     // the page lists at most 10 matches: read the last 2 hours in 20-minute slices
     for (let t = new Date(df).getTime(); t < now.getTime(); t += 20 * 60e3) {
       const a = new Date(t).toISOString(), b = new Date(Math.min(t + 20 * 60e3 - 1000, now.getTime())).toISOString();

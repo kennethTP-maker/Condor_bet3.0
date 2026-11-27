@@ -1,4 +1,4 @@
-name: NHL Radar + eSoccer Radar - actualización
+name: NHL + eSoccer + eBasketball Radar - actualización
 
 on:
   schedule:
@@ -35,6 +35,9 @@ jobs:
 
       - name: Datos de eSoccer (Kalshi)
         run: python nhl_dashboard/fetch_esoccer.py
+
+      - name: Datos de eBasketball (Kalshi)
+        run: python nhl_dashboard/fetch_esoccer.py --sport ebasketball
 
       - name: Guardar datos en el repositorio
         run: |

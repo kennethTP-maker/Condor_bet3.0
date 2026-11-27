@@ -26,6 +26,8 @@ PAGE_MAX = 10
 
 TXT_RE = re.compile(r"([^|]+?) \| ([^|]+?) \| Match (\d+) \| (?:Loading\.\.\. \| )?(\d+) - (\d+) \| ([^|]+?) \| ([^|]+?)(?= \|)")
 DATE_RE = re.compile(r'"children":"Match (\d+)"\}\],\["\$","\$L[0-9a-z]+",null,\{"date":"\$D([0-9T:.\-]+Z)"\}\]')
+PER_RE = re.compile(r'"children":"Match (\d+)".{0,600}?"periods":\{"type":"(HALF|QUARTER|PERIOD)","values":\[(.*?)\]\}')
+VAL_RE = re.compile(r'\{"home":"(\d+)","away":"(\d+)"')
 HALF_RE = re.compile(r'"children":"Match (\d+)".{0,600}?"periods":\{"type":"HALF","values":\[\{"home":"(\d+)","away":"(\d+)"[^}]*\},\{"home":"(\d+)","away":"(\d+)"[^}]*\}')
 
 
@@ -55,6 +57,15 @@ def parse(page: str) -> dict:
         mid = int(m.group(1))
         if mid in out and not out[mid]["t"]:
             out[mid]["t"] = m.group(2)[:16] + "Z"
+    for m in PER_RE.finditer(payload):
+        mid = int(m.group(1))
+        if mid in out and out[mid]["h1"] is None and m.group(2) != "HALF":
+            vals = [[int(a), int(b)] for a, b in VAL_RE.findall(m.group(3))]
+            if len(vals) >= 2:
+                half = len(vals) // 2
+                out[mid]["h1"] = [sum(v[0] for v in vals[:half]), sum(v[1] for v in vals[:half])]
+                out[mid]["h2"] = [sum(v[0] for v in vals[half:]), sum(v[1] for v in vals[half:])]
+                out[mid]["per"] = vals
     for m in HALF_RE.finditer(payload):
         mid = int(m.group(1))
         if mid in out and out[mid]["h1"] is None:
@@ -73,11 +84,11 @@ def fetch_window(slug, start: datetime, end: datetime, depth=0):
     return got
 
 
-def update(hours_back=72, log=print) -> list[dict]:
+def update(hours_back=72, log=print, slugs=None) -> list[dict]:
     """Return all cached Drafted matches (both pages) after fetching hours not yet complete in cache."""
     now = datetime.now(timezone.utc)
     all_matches = []
-    for slug in SLUGS:
+    for slug in (slugs or SLUGS):
         path = CACHE_DIR / f"drafted_{slug}.json"
         c = json.loads(path.read_text()) if path.exists() else {"done": [], "matches": {}}
         done = set(c["done"])
