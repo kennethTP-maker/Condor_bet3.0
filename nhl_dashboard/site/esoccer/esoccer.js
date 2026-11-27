@@ -691,7 +691,9 @@ function agreeInfo(m) {
   const sc = (n) => { const l = (P[n] && P[n].l10) || ""; return l.length ? [...l].reduce((t, c) => t + (c === "W" ? 1 : c === "D" ? 0.5 : 0), 0) / l.length : null; };
   const fa = sc(m.a), fb = sc(m.b), fm = fa == null || fb == null || fa === fb ? null : fa > fb ? "A" : "B";
   const nm = (k) => (k === "A" ? m.a : m.b);
-  if (!h2) return { kind: "noh2h", side: elo, cls: "", tag: "No H2H yet", text: "Fewer than 3 meetings (or level): Elo decides alone." };
+  if (!h2) return hw + hl + (m.h2h ? m.h2h[1] : 0) >= 3
+    ? { kind: "noh2h", side: elo, cls: "", tag: "H2H even", text: `Head-to-head is level (${hw}-${hl}): Elo decides.` }
+    : { kind: "noh2h", side: elo, cls: "", tag: "No H2H yet", text: "Fewer than 3 meetings: Elo decides alone." };
   if (h2 === elo && fm === elo) return { kind: "all3", side: elo, cls: "ok", tag: "Elo + H2H + form agree", text: `Elo, head-to-head and last-10 form all favour ${nm(elo)}. Historically this pick wins ${hr("all3")}.` };
   if (h2 === elo) return { kind: "agree", side: elo, cls: "ok", tag: "Elo + H2H agree", text: `Elo and head-to-head both favour ${nm(elo)}. Historically this pick wins ${hr("agree")}.` };
   return { kind: "dis", side: h2, cls: "ko", tag: "Elo vs H2H disagree", text: `Elo favours ${nm(elo)} but the head-to-head favours ${nm(h2)}. Historically the Elo side wins ${hr("disElo")} and the H2H side ${hr("disH2h")}: risky, consider skipping.` };
@@ -778,6 +780,25 @@ function kalLine(m, k, pre) {
   const lv = live ? `<span class="kal-live">live</span> ${kq(pr(live))}` : "";
   return [at, lv].filter(Boolean).join(" · ") || "Kalshi –";
 }
+/* Model vs Kalshi, one column per outcome: the same units (60% = 60¢) so they compare directly */
+function priceTable(m, pre) {
+  const cols = [["A", m.a, m.ma, "pa"], ...(SP.draws ? [["T", "Draw", m.md, "pt"]] : []), ["B", m.b, m.mb, "pb"]];
+  const thin = (pr) => !pr || pr.ask == null || pr.bid == null || pr.ask - pr.bid > 0.12;
+  const buy = (pr) => (!pr || pr.ask == null ? `<span class="dim">–</span>` : thin(pr) ? `<span class="dim" title="Bid ${cents(pr && pr.bid)} / ask ${cents(pr && pr.ask)}: almost no one trading, not a real price">no market</span>` : cents(pr.ask));
+  const diff = (p, pr) => {
+    if (thin(pr)) return `<span class="dim">–</span>`;
+    const d = Math.round((p - pr.ask) * 100);
+    return `<span class="${d >= 2 ? "pv-pos" : d <= -2 ? "pv-neg" : "dim"}">${d > 0 ? "+" : ""}${d}${d >= 2 ? " value" : ""}</span>`;
+  };
+  const st = started(m), live = st ? D.upcoming.find((x) => x.id === m.id) : null;
+  const kRef = !st || pre ? m : null;   // price we can compare with the model: before kick-off, or the one captured at kick-off
+  const row = (lbl, f) => `<tr><td class="l">${lbl}</td>${cols.map((c) => `<td>${f(c)}</td>`).join("")}</tr>`;
+  return `<div class="tbl-wrap"><table class="tbl pv-pt" style="min-width:0;width:100%"><thead><tr><th class="l"></th>${cols.map((c) => `<th>${esc(c[1])}</th>`).join("")}</tr></thead><tbody>
+    ${row(st ? "Model (at kick-off)" : "Model", (c) => `<b>${pct(c[2])}</b>`)}
+    ${kRef ? row(st ? "Kalshi at kick-off" : "Kalshi (buy Yes)", (c) => buy(kRef[c[3]])) + row("Model − Kalshi", (c) => diff(c[2], kRef[c[3]])) : ""}
+    ${live ? row(`<span class="kal-live">●</span> Kalshi live`, (c) => buy(live[c[3]])) : ""}
+  </tbody></table></div>${st ? `<div class="dim" style="font-size:11px">Live prices move with the score: compare the model with the kick-off price, not the live one.</div>` : ""}`;
+}
 function previewCard(m, frozen, pre) {
   const A = sideStats(m.a, m.ta, m.start), B = sideStats(m.b, m.tb, m.start);
   if (!A || !B) return "";
@@ -787,11 +808,12 @@ function previewCard(m, frozen, pre) {
   const st = pvStatus(m, dp);
   const side = (S, nm, team, prob, k) => `<div class="pv-side"><div class="nm" data-pl="${esc(nm)}" style="cursor:pointer">${esc(nm)}</div>
     <div class="dim" style="font-size:12px">${esc(team)}</div><div style="margin:4px 0">${chip(S.p.form)}</div>${resStrip(S.p.l10)}
-    <div class="pv-num"><b class="num">${pct(prob)}</b><small>ours${started(m) ? " (kick-off)" : ""} · ${kalLine(m, k, pre)}</small></div><div class="dim" style="font-size:12px">Elo ${Math.round(S.p.elo)} · 24 h ${recTxt(S.d24)}</div></div>`;
+    <div class="pv-num"><b class="num">${pct(prob)}</b><small>model chance</small></div><div class="dim" style="font-size:12px">Elo ${Math.round(S.p.elo)} · 24 h ${recTxt(S.d24)}</div></div>`;
   return `<article class="pickc pv" data-match="${esc(m.id)}">${fireBadge(m)}
     <div class="dim" style="font-size:12px;display:flex;gap:8px;flex-wrap:wrap">${esc(tourShort(m.tour))} · ${st.head} ${kLink(m.id)}</div>
     ${st.line}
-    <div class="pv-grid">${side(A, m.a, m.ta, m.ma, "A")}<div class="pv-vs">vs${SP.draws ? `<small>Draw ${pct(m.md)}<br>${kalLine(m, "T", pre)}</small>` : ""}</div>${side(B, m.b, m.tb, m.mb, "B")}</div>
+    <div class="pv-grid">${side(A, m.a, m.ta, m.ma, "A")}<div class="pv-vs">vs${SP.draws ? `<small>Draw ${pct(m.md)}</small>` : ""}</div>${side(B, m.b, m.tb, m.mb, "B")}</div>
+    ${priceTable(m, pre)}
     <div>${h2hBar(m)}</div>
     <div style="font-size:12.5px">${verdict(m, rows)}</div>
     ${dataPickLine(dp)}${mins <= 0 ? `<div class="dim" style="font-size:11px">Pick and % frozen at kick-off.</div>` : ""}
