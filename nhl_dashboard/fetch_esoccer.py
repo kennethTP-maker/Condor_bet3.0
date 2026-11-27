@@ -28,10 +28,25 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 API = "https://api.elections.kalshi.com/trade-api/v2"
-SERIES = "KXESOCCERGAME"
+SPORTS = {
+    "esoccer": dict(name="eSoccer Radar", series="KXESOCCERGAME", kslug="esoccer-game", draws=True, unit="goal",
+                    drafted=["valkyrie-cup", "valhalla-cup"], lines=[4.5, 5.5, 6.5], out="esoccer"),
+    "ebasketball": dict(name="eBasketball Radar", series="KXEBASKETBALLGAME", kslug="ebasketball-game", draws=False, unit="point",
+                        drafted=["valhalla-league"], lines=None, out="ebasketball"),
+}
+SPORT = SPORTS["esoccer"]
+SERIES = SPORT["series"]
 HERE = Path(__file__).parent
 CACHE = HERE / "cache" / "esoccer_matches.json"
 OUT = HERE / "site" / "esoccer" / "data" / "esoccer.json"
+
+
+def set_sport(key):
+    global SPORT, SERIES, CACHE, OUT
+    SPORT = SPORTS[key]
+    SERIES = SPORT["series"]
+    CACHE = HERE / "cache" / f"{key}_matches.json"
+    OUT = HERE / "site" / SPORT["out"] / "data" / f"{key}.json"
 MONTHS = {m: i for i, m in enumerate(["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], 1)}
 UA = {"User-Agent": "esoccer-radar/1.0", "Accept": "application/json"}
 
@@ -115,8 +130,9 @@ def parse_events(rows):
             t = TITLE_RE.match(m.get("title") or "")
             if t:
                 sides[code] = dict(team=t.group(1), player=t.group(2), m=m)
-        if len(sides) != 2 or not tie:
+        if len(sides) != 2 or (SPORT["draws"] and not tie):
             continue
+        tie = tie or {}
         # player order as written in the rules: "<A> vs <B>"
         codes = list(sides)
         rv = re.search(r"in the (.+?) \((.+?)\) vs (.+?) \((.+?)\) professional", rules)
@@ -205,11 +221,13 @@ def fit(matches):
     draws = sum(1 for m in matches if m["res"] == "T") / max(1, len(matches))
     best = None
     for K in (12, 16, 20, 24, 32):
-        for dm in (0.9, 1.0, 1.1, 1.2):
+        for dm in ((0.9, 1.0, 1.1, 1.2) if draws > 0 else (0.0,)):
             for w in (250, 400, 600, 900):
                 _, ll, rows, _, _ = run_elo(matches, K, min(0.6, draws * dm), w, pair=False)
                 if rows and (best is None or ll / len(rows) < best[0]):
                     best = (ll / len(rows), K, min(0.6, draws * dm), w)
+    if draws == 0:
+        best = (best[0], best[1], 0.0, 400)
     return dict(K=best[1], d0=round(best[2], 4), w=best[3], logloss=round(best[0], 4), drawRate=round(draws, 4))
 
 
@@ -231,6 +249,9 @@ def calibration(rows):
     return dict(n=len(rows), win=win, draw=draw, brier=round(brier, 4), brierBase=round(base, 4))
 
 
+LINES = [4.5, 5.5, 6.5]
+
+
 def goal_stats(rows, now):
     """rows: [iso, gf, ga, h1f, h1a] for matches with a Drafted.gg score."""
     if not rows:
@@ -245,7 +266,8 @@ def goal_stats(rows, now):
                     tot=round(sum(tot) / n, 2), btts=round(sum(1 for r in rs if r[1] and r[2]) / n, 3),
                     o45=round(sum(1 for t in tot if t > 4.5) / n, 3), o55=round(sum(1 for t in tot if t > 5.5) / n, 3),
                     o65=round(sum(1 for t in tot if t > 6.5) / n, 3), cs=round(sum(1 for r in rs if r[2] == 0) / n, 3),
-                    h1gf=round(sum(r[3] for r in h1) / len(h1), 2) if h1 else None)
+                    h1gf=round(sum(r[3] for r in h1) / len(h1), 2) if h1 else None,
+                    ov=[round(sum(1 for t in tot if t > ln) / n, 3) for ln in LINES])
     day = (now - timedelta(hours=24)).isoformat()[:16]
     return dict(all=agg(rows), d24=agg([r for r in rows if r[0] >= day]), l10=agg(rows[-10:]))
 
@@ -266,9 +288,11 @@ def form_label(delta7, exp_diff10):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--sport", choices=list(SPORTS), default="esoccer")
     ap.add_argument("--days", type=int, default=30)
     ap.add_argument("--drafted-hours", type=int, default=48, help="hours of Drafted.gg score pages to keep current (0 = skip)")
     args = ap.parse_args()
+    set_sport(args.sport)
     now = datetime.now(timezone.utc)
     t0 = time.time()
 
@@ -293,7 +317,7 @@ def main():
     if args.drafted_hours > 0:
         sys.path.insert(0, str(HERE))
         import drafted
-        dg = drafted.update(args.drafted_hours, lambda m: print(m, file=sys.stderr))
+        dg = drafted.update(args.drafted_hours, lambda m: print(m, file=sys.stderr), slugs=SPORT["drafted"])
         dmatch["drafted"] = len(dg)
         idx = defaultdict(list)
         for g in dg:
@@ -328,6 +352,13 @@ def main():
     print(f"model {params} calib n={calib['n']} brier={calib['brier']}", file=sys.stderr)
 
     # ---- per-player aggregates
+    global LINES
+    if SPORT["lines"]:
+        LINES = SPORT["lines"]
+    else:
+        tots = sorted(m["score"][0] + m["score"][1] for m in done if m.get("score"))
+        med = tots[len(tots) // 2] if tots else 150
+        LINES = [med - 10.5, med - 0.5, med + 9.5]
     P = defaultdict(lambda: dict(w=0, d=0, l=0, gp=0, res=[], teams=defaultdict(lambda: [0, 0, 0]), tours=set(),
                                  hours=defaultdict(lambda: [0, 0, 0]), exp=[], goals=[]))
     h2h = defaultdict(lambda: [0, 0, 0])  # (a,b) -> wins a, draws, wins b
@@ -446,12 +477,14 @@ def main():
         t["players"].update((m["a"], m["b"]))
 
     out = dict(
-        generatedAt=now.isoformat(timespec="seconds"), source="Kalshi KXESOCCERGAME (settled by Drafted.gg)",
+        generatedAt=now.isoformat(timespec="seconds"), source=f"Kalshi {SERIES} (settled by Drafted.gg)",
+        sport=dict(key=args.sport, name=SPORT["name"], series=SERIES, kslug=SPORT["kslug"], draws=SPORT["draws"],
+                   unit=SPORT["unit"], drafted=SPORT["drafted"], lines=LINES),
         days=args.days, matches=len(done), firstMatch=done[0]["start"] if done else None, lastMatch=done[-1]["start"] if done else None,
         model=dict(**params, calibration=calib),
         tournaments=[dict(name=k, matches=v["matches"], drawRate=round(v["draws"] / max(1, v["matches"]), 3), players=len(v["players"])) for k, v in sorted(tours.items())],
         players=players, upcoming=up, recent=recent, h2h=h2h_out, drafted=dmatch,
-        links=dict(series="https://kalshi.com/markets/kxesoccergame/esoccer-game"),
+        links=dict(series=f"https://kalshi.com/markets/{SERIES.lower()}/{SPORT['kslug']}"),
     )
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")))

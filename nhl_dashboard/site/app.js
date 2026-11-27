@@ -153,6 +153,7 @@ async function boot() {
     <span>Last game <b>${D.lastGameDate ? dShort(D.lastGameDate) : "–"}</b></span>
     <span>Next update <b>${next.toLocaleString("en-US", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</b></span>
     <span><a class="nhl-link" href="esoccer/">eSoccer Radar ↗</a></span>
+    <span><a class="nhl-link" href="ebasketball/">eBasketball Radar ↗</a></span>
     <button class="theme-btn" id="theme-btn" type="button">Theme</button>`;
   $("#theme-btn").addEventListener("click", toggleTheme);
   window.addEventListener("hashchange", route);
