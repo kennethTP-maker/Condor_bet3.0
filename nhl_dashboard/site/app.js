@@ -1331,6 +1331,11 @@ function startLive() {
   $("#refresh-btn").addEventListener("click", () => liveTick(true));
   liveTick(true);
   setInterval(() => { if (!document.hidden) liveTick(false); }, 30000);
+
+  const resume = () => { if (!document.hidden && LIVE.on && Date.now() - (LIVE.last || 0) > 10000) liveTick(true); };
+  document.addEventListener("visibilitychange", resume);
+  window.addEventListener("pageshow", (e) => { if (e.persisted) resume(); });
+  window.addEventListener("focus", resume);
   setInterval(paintLive, 1000);
 }
 
