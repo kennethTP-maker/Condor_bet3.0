@@ -306,3 +306,14 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 
 .kal-all summary:hover { color: var(--accent); }
 .game > * { min-width: 0; }
 .game:has(details.kal-all[open]) { grid-column: 1 / -1; }
+/* match preview */
+.pv-grid { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: start; }
+.pv-side { min-width: 0; display: grid; gap: 2px; }
+.pv-side:last-child { text-align: right; justify-items: end; }
+.pv-side .nm { font-weight: 700; font-size: 15px; }
+.pv-num b { font-family: var(--f-display); font-size: 24px; line-height: 1; display: block; }
+.pv-num small { font-size: 11px; color: var(--fg-3); }
+.pv-vs { font-family: var(--f-display); font-size: 18px; color: var(--fg-3); text-align: center; padding-top: 20px; display: grid; gap: 4px; }
+.pv-vs small { font-family: var(--f-body); font-size: 10.5px; }
+.pv .theme-btn { justify-self: start; }
+td.pv-win { color: var(--up); font-weight: 700; background: color-mix(in srgb, var(--up) 8%, transparent); }

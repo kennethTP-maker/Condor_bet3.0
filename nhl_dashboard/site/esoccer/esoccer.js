@@ -16,7 +16,7 @@ const VIEWS = ["summary", "analyst", "matches", "players", "h2h", "method"];
 const TAB_INTRO = {
   summary: "Overview: top-rated players, who is hot or cold, the tournaments, and the next matches with the best value against Kalshi.",
   analyst: "For every upcoming match: our win/draw/loss probability, the Kalshi price, and the pick with the most value, with the reasons.",
-  matches: "Upcoming matches with model vs Kalshi prices, and the latest results.",
+  matches: "Every upcoming match compared side by side (who is stronger, head-to-head, form, scoring), the model vs Kalshi prices, and the latest results.",
   players: "Every player with record, Elo rating, form, streaks and last 10 results.",
   h2h: "Head-to-head records between players who meet often — in these leagues the same pairs play hundreds of times.",
   method: "Where the data comes from, how the ratings and probabilities are calculated, and a backtest of their accuracy.",
@@ -226,11 +226,14 @@ function viewMatches(app) {
   const ups = D.upcoming.filter(mInTour);
   const rec = D.recent.filter(mInTour).slice(-80).reverse();
   const resTxt = (m) => (m.res === "A" ? `<b>${esc(m.a)}</b> won` : m.res === "B" ? `<b>${esc(m.b)}</b> won` : "Draw");
+  const pv = ups.filter((m) => !started(m)).slice(0, 24);
   app.innerHTML = `<div class="view">
     <div>${tourSeg("tour-seg")}</div>
+    <section class="panel"><div class="panel-h"><h2>Match previews</h2><span class="sub">Who is stronger in each upcoming match · tap "Full comparison" for every stat and past meetings</span></div>
+      <div class="panel-b"><div class="ana-top">${pv.map(previewCard).join("") || `<div class="empty">No upcoming matches listed right now.</div>`}</div></div></section>
     <section class="panel"><div class="panel-h"><h2>Upcoming</h2><span class="sub">Ours vs Kalshi Yes price · ${SP.draws ? "A / Draw / B" : "A / B"}</span></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:900px">
       <thead><tr><th class="l">Start</th><th class="l">Tournament</th><th class="l">Match</th><th>A ours</th><th>A Kalshi</th>${SP.draws ? "<th>Draw ours</th><th>Draw Kalshi</th>" : ""}<th>B ours</th><th>B Kalshi</th><th class="l">H2H (${SP.draws ? "A-D-B" : "A-B"})</th><th title="Expected score from each player's scoring and conceding averages">Exp. score</th><th class="l"></th></tr></thead>
-      <tbody>${ups.map((m) => `<tr style="cursor:default${started(m) ? ";opacity:.55" : ""}"><td class="l">${tShort(m.start)}${started(m) ? ' <span class="kal-live">● live</span>' : ""}</td><td class="l">${tourShort(m.tour)}</td>
+      <tbody>${ups.map((m) => `<tr data-open-match="${esc(m.id)}" style="cursor:pointer${started(m) ? ";opacity:.55" : ""}"><td class="l">${tShort(m.start)}${started(m) ? ' <span class="kal-live">● live</span>' : ""}</td><td class="l">${tourShort(m.tour)}</td>
         <td class="l"><span data-pl="${esc(m.a)}" style="cursor:pointer;font-weight:600">${esc(m.a)}</span> <span class="dim">(${esc(m.ta)})</span> vs <span data-pl="${esc(m.b)}" style="cursor:pointer;font-weight:600">${esc(m.b)}</span> <span class="dim">(${esc(m.tb)})</span></td>
         <td class="pct">${pct(m.ma)}</td><td>${cents(m.pa.ask)} ${started(m) ? "" : edgeCell(m.ma, m.pa.ask)}</td>${SP.draws ? `<td class="pct">${pct(m.md)}</td><td>${cents(m.pt.ask)} ${started(m) ? "" : edgeCell(m.md, m.pt.ask)}</td>` : ""}<td class="pct">${pct(m.mb)}</td><td>${cents(m.pb.ask)} ${started(m) ? "" : edgeCell(m.mb, m.pb.ask)}</td>
         <td class="l">${SP.draws ? m.h2h.join("-") : m.h2h[0] + "-" + m.h2h[2]}</td><td>${m.xg ? `${m.xg[0].toFixed(1)}–${m.xg[1].toFixed(1)}` : "–"}</td><td class="l">${kLink(m.id)}</td></tr>`).join("") || `<tr><td colspan="12"><div class="empty">No upcoming matches listed.</div></td></tr>`}</tbody></table></div>
@@ -585,5 +588,111 @@ function trackPanel() {
     <p class="chart-note" style="margin:0">Picks are recorded at each data update with the price at that moment, so your own entry price can differ. Results fill in as games finish. A few days of picks are needed before the numbers mean much.</p>
   </div></section>`;
 }
+
+/* ---------------- Match preview: who is stronger, side by side ---------------- */
+function sideStats(name, team, startIso) {
+  const p = P[name];
+  if (!p) return null;
+  const hourUtc = +startIso.slice(11, 13);
+  const tr = (p.teams || []).find((t) => t[0] === team) || null;
+  const hr = (p.hours || []).find((h) => h[0] === hourUtc) || null;
+  const now = Date.now();
+  const d24 = p.log.filter((r) => now - new Date(r[0]).getTime() < 864e5);
+  const cnt = (rs) => ({ w: rs.filter((r) => r[3] === "W").length, d: rs.filter((r) => r[3] === "D").length, l: rs.filter((r) => r[3] === "L").length, n: rs.length });
+  const g24 = G(p, "d24"), gall = G(p, "all");
+  return { p, team: tr, hour: hr, d24: cnt(d24), l10: cnt(p.log.slice(-10)), g: g24 && g24.n >= 3 ? g24 : gall, gLbl: g24 && g24.n >= 3 ? "last 24 h" : "all scored" };
+}
+const recTxt = (r) => (!r ? "–" : SP.draws ? `${r.w}-${r.d}-${r.l}` : `${r.w}-${r.l}`);
+const winRate = (r) => (r && r.n ? r.w / r.n : null);
+function meetings(a, b, n = 10) {
+  return (P[a] ? P[a].log : []).filter((r) => r[1] === b).slice(-n).reverse();
+}
+function compareRows(m, A, B) {
+  const rows = [];
+  const add = (label, va, vb, fmt, better = "high") => {
+    const ok = better !== "none" && va != null && vb != null && va !== vb;
+    const aw = ok && (better === "high" ? va > vb : va < vb), bw = ok && !aw;
+    rows.push({ label, a: fmt(va), b: fmt(vb), aw, bw, counts: ok });
+  };
+  const pc = (x) => (x == null ? "–" : Math.round(x * 100) + "%");
+  add("Our win chance", m.ma, m.mb, pc);
+  add("Kalshi price", m.pa.ask, m.pb.ask, (x) => (x == null ? "–" : Math.round(x * 100) + "¢"), "none");
+  add("Elo rating", A.p.elo, B.p.elo, (x) => Math.round(x));
+  add("Elo last 7 days", A.p.elo7, B.p.elo7, (x) => sgn(x));
+  add("Win % (all)", A.p.winPct, B.p.winPct, pc);
+  add("Win % last 24 h", winRate(A.d24), winRate(B.d24), pc);
+  rows.push({ label: "Record last 24 h", a: recTxt(A.d24), b: recTxt(B.d24) });
+  rows.push({ label: "Last 10", a: resStrip(A.p.l10), b: resStrip(B.p.l10) });
+  rows.push({ label: "Streak", a: esc(A.p.streak || "–"), b: esc(B.p.streak || "–") });
+  add(`With ${esc(m.ta)} / ${esc(m.tb)}`, A.team ? A.team[1] / (A.team[1] + A.team[2] + A.team[3]) : null, B.team ? B.team[1] / (B.team[1] + B.team[2] + B.team[3]) : null, (x) => (x == null ? "–" : pc(x)));
+  add("Win % at this hour", A.hour ? A.hour[1] / (A.hour[1] + A.hour[2] + A.hour[3]) : null, B.hour ? B.hour[1] / (B.hour[1] + B.hour[2] + B.hour[3]) : null, pc);
+  const u = U();
+  add(`${u.Many} for / game`, A.g && A.g.gf, B.g && B.g.gf, (x) => (x == null ? "–" : x.toFixed(1)));
+  add(`${u.Many} against / game`, A.g && A.g.ga, B.g && B.g.ga, (x) => (x == null ? "–" : x.toFixed(1)), "low");
+  add(`Total ${u.many} / game`, A.g && A.g.tot, B.g && B.g.tot, (x) => (x == null ? "–" : x.toFixed(1)), "none");
+  return rows;
+}
+function verdict(m, rows) {
+  const counted = rows.filter((r) => r.counts);
+  const aw = counted.filter((r) => r.aw).length, bw = counted.filter((r) => r.bw).length;
+  const [hw, hd, hl] = m.h2h; const hn = hw + hd + hl;
+  const fav = m.ma >= m.mb ? m.a : m.b;
+  const lead = aw === bw ? "Even on the indicators" : `${aw > bw ? m.a : m.b} is ahead in ${Math.max(aw, bw)} of ${counted.length} indicators`;
+  const h2hTxt = hn ? ` · head-to-head ${m.a} ${hw}${SP.draws ? "-" + hd : ""}-${hl} ${m.b}` : "";
+  return `<b>${esc(fav)}</b> is the favourite (${pct(Math.max(m.ma, m.mb))}) · ${lead}${h2hTxt}`;
+}
+function h2hBar(m) {
+  const [w, d, l] = m.h2h, n = w + d + l;
+  if (!n) return `<span class="dim">First meeting in our data</span>`;
+  return `<span style="display:flex;width:100%;max-width:260px;height:10px;border-radius:5px;overflow:hidden;gap:1px"><i style="flex:${w};background:var(--up)"></i>${SP.draws ? `<i style="flex:${d};background:var(--gold)"></i>` : ""}<i style="flex:${l};background:var(--down)"></i></span>
+    <span class="dim" style="display:block;font-size:12px;margin-top:4px">Head-to-head: ${esc(m.a)} ${w} · ${SP.draws ? `draws ${d} · ` : ""}${esc(m.b)} ${l} (${n} meetings)</span>`;
+}
+function previewCard(m) {
+  const A = sideStats(m.a, m.ta, m.start), B = sideStats(m.b, m.tb, m.start);
+  if (!A || !B) return "";
+  const rows = compareRows(m, A, B);
+  const mins = minsTo(m.start);
+  const side = (S, nm, team, prob, ask) => `<div class="pv-side"><div class="nm" data-pl="${esc(nm)}" style="cursor:pointer">${esc(nm)}</div>
+    <div class="dim" style="font-size:12px">${esc(team)}</div><div style="margin:4px 0">${chip(S.p.form)}</div>${resStrip(S.p.l10)}
+    <div class="pv-num"><b class="num">${pct(prob)}</b><small>ours · Kalshi ${cents(ask)}</small></div><div class="dim" style="font-size:12px">Elo ${Math.round(S.p.elo)} · 24 h ${recTxt(S.d24)}</div></div>`;
+  return `<article class="pickc pv" data-match="${esc(m.id)}">
+    <div class="dim" style="font-size:12px;display:flex;gap:8px;flex-wrap:wrap">${esc(tourShort(m.tour))} · ${mins > 0 ? `in ${mins} min · ${tShort(m.start)}` : `<span class="kal-live">● started</span>`} ${kLink(m.id)}</div>
+    <div class="pv-grid">${side(A, m.a, m.ta, m.ma, m.pa.ask)}<div class="pv-vs">vs${SP.draws ? `<small>Draw ${pct(m.md)}<br>K ${cents(m.pt.ask)}</small>` : ""}</div>${side(B, m.b, m.tb, m.mb, m.pb.ask)}</div>
+    <div>${h2hBar(m)}</div>
+    <div style="font-size:12.5px">${verdict(m, rows)}</div>
+    <button class="theme-btn" type="button" data-open-match="${esc(m.id)}">Full comparison →</button>
+  </article>`;
+}
+function openMatch(id) {
+  const m = D.upcoming.find((x) => x.id === id);
+  if (!m) return;
+  const A = sideStats(m.a, m.ta, m.start), B = sideStats(m.b, m.tb, m.start);
+  if (!A || !B) return;
+  destroy(modalCharts);
+  const rows = compareRows(m, A, B);
+  const meet = meetings(m.a, m.b);
+  const sh = $("#sheet");
+  sh.innerHTML = `
+    <div class="sheet-h"><span class="av lg" aria-hidden="true">VS</span><div><h2 id="sheet-title">${esc(m.a)} vs ${esc(m.b)}</h2>
+      <div class="facts"><span>${esc(m.tour)}</span><span>${esc(m.ta)} vs ${esc(m.tb)}</span><span>${new Date(m.start).toLocaleString("en-US", { weekday: "short", hour: "2-digit", minute: "2-digit" })}</span>${kLink(m.id)}</div></div>
+      <button class="close" type="button" aria-label="Close">×</button></div>
+    <section class="panel"><div class="panel-b" style="font-size:14px">${verdict(m, rows)}</div></section>
+    <section class="panel"><div class="panel-h"><h3>Side by side</h3><span class="sub">Green = better side for that indicator · ${U().many} from ${A.gLbl}</span></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:0">
+      <thead><tr><th class="l"></th><th>${esc(m.a)}</th><th>${esc(m.b)}</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr style="cursor:default"><td class="l">${r.label}</td><td class="${r.aw ? "pv-win" : ""}">${r.a}</td><td class="${r.bw ? "pv-win" : ""}">${r.b}</td></tr>`).join("")}
+      </tbody></table></div></div></section>
+    <section class="panel"><div class="panel-h"><h3>Head-to-head</h3></div><div class="panel-b" style="display:grid;gap:10px">${h2hBar(m)}
+      ${meet.length ? `<div class="tbl-wrap"><table class="tbl" style="min-width:0"><thead><tr><th class="l">When</th><th class="l">${esc(m.a)} played</th><th class="l">Score</th><th class="l">Result for ${esc(m.a)}</th></tr></thead><tbody>
+        ${meet.map((r) => `<tr style="cursor:default"><td class="l">${dtShort(r[0])}</td><td class="l">${esc(r[2])}</td><td class="l">${r[5] ? `${r[5][0]}–${r[5][1]}` : "–"}</td><td class="l">${resStrip(r[3])} ${r[3]}</td></tr>`).join("")}</tbody></table></div>` : `<div class="dim">No recent meetings stored.</div>`}
+    </div></section>
+    <section class="panel"><div class="panel-h"><h3>Model vs Kalshi</h3></div><div class="panel-b">${matchCard(m)}</div></section>`;
+  $("#modal").hidden = false; document.body.style.overflow = "hidden"; sh.scrollTop = 0;
+  $(".close", sh).addEventListener("click", closeModal);
+  sh.querySelectorAll("[data-pl]").forEach((el) => el.addEventListener("click", (e) => { if (!e.target.closest("a")) openPlayer(el.dataset.pl); }));
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-open-match]");
+  if (b) { e.stopPropagation(); openMatch(b.dataset.openMatch); }
+});
 
 boot();
