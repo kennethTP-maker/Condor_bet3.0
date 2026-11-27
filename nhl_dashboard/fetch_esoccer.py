@@ -231,6 +231,67 @@ def fit(matches):
     return dict(K=best[1], d0=round(best[2], 4), w=best[3], logloss=round(best[0], 4), drawRate=round(draws, 4))
 
 
+def fit_kpair(matches, params):
+    """Weight of the Elo prior vs the pair's own record: chosen on the later half (out of sample)."""
+    global KPAIR
+    half = len(matches) // 2
+    best = None
+    for kp in (5, 8, 12, 20, 30, 40, 60):
+        KPAIR = kp
+        _, ll_all, rows_all, _, _ = run_elo(matches, params["K"], params["d0"], params["w"])
+        _, ll_1, rows_1, _, _ = run_elo(matches[:half], params["K"], params["d0"], params["w"])
+        n2 = len(rows_all) - len(rows_1)
+        if n2 > 0 and (best is None or (ll_all - ll_1) / n2 < best[0]):
+            best = ((ll_all - ll_1) / n2, kp)
+    KPAIR = best[1] if best else 40
+    return KPAIR
+
+
+def agreement_backtest(matches, params):
+    """Leak-free hit rates of the winner pick by how Elo, head-to-head and form line up."""
+    R = defaultdict(lambda: 1500.0)
+    n = defaultdict(int)
+    H = defaultdict(lambda: [0, 0, 0])
+    L = defaultdict(list)
+    st = {k: [0, 0] for k in ("all", "agree", "all3", "disElo", "disH2h", "p60", "p70")}
+    for m in matches:
+        a, b, res = m["a"], m["b"], m["res"]
+        key = (a, b) if a < b else (b, a)
+        h = H[key]
+        rec = h if key[0] == a else [h[2], h[1], h[0]]
+        pa, pd, pb = blend_pair(*probs(R[a], R[b], params["d0"], params["w"]), rec)
+        if n[a] >= 15 and n[b] >= 15:
+            model = "A" if pa >= pb else "B"
+            elo = "A" if R[a] >= R[b] else "B"
+            h2 = None if sum(rec) < 3 or rec[0] == rec[2] else ("A" if rec[0] > rec[2] else "B")
+            fa, fb = sum(L[a][-10:]) / max(1, len(L[a][-10:])), sum(L[b][-10:]) / max(1, len(L[b][-10:]))
+            fm = None if fa == fb else ("A" if fa > fb else "B")
+            def add(k, pick):
+                st[k][0] += 1
+                st[k][1] += pick == res
+            add("all", model)
+            if h2 and h2 == elo:
+                add("agree", elo)
+                if fm == elo:
+                    add("all3", elo)
+            if h2 and h2 != elo:
+                add("disElo", elo)
+                add("disH2h", h2)
+            if max(pa, pb) >= 0.6:
+                add("p60", model)
+            if max(pa, pb) >= 0.7:
+                add("p70", model)
+        s = {"A": 1.0, "T": 0.5, "B": 0.0}[res]
+        e = expected(R[a], R[b])
+        for pl, d in ((a, s - e), (b, e - s)):
+            R[pl] += params["K"] * (1.6 if n[pl] < 20 else 1.0) * d
+            n[pl] += 1
+        L[a].append(s)
+        L[b].append(1 - s)
+        h[{"A": 0, "T": 1, "B": 2}[res] if key[0] == a else {"A": 2, "T": 1, "B": 0}[res]] += 1
+    return {k: [v[0], round(v[1] / v[0], 4) if v[0] else None] for k, v in st.items()}
+
+
 def calibration(rows):
     def table(idx, outcome, edges):
         out = []
@@ -345,10 +406,12 @@ def main():
     upcoming = sorted([m for m in cache.values() if not m.get("res") and m["status"] == "open"], key=lambda m: m["start"])
 
     params = fit(done)
+    fit_kpair(done, params)
     R, ll, rows_bt, hist, n_seen = run_elo(done, params["K"], params["d0"], params["w"], record=True)
     params["logloss"] = round(ll / max(1, len(rows_bt)), 4)
     params["kPair"] = KPAIR
     calib = calibration(rows_bt)
+    params["agree"] = agreement_backtest(done, params)
     print(f"model {params} calib n={calib['n']} brier={calib['brier']}", file=sys.stderr)
 
     # ---- per-player aggregates

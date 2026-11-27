@@ -305,7 +305,10 @@ function viewMethod(app) {
     <h3>Elo rating</h3>
     <p>Every player starts at 1500. After each match the winner takes points from the loser in proportion to how surprising the result was (K = ${M.K}, larger for a player's first 20 matches). ${SP.draws ? "A draw moves ratings toward each other." : ""} The <b>Elo 24h / 7d</b> columns are the change over the last day and week.</p>
     <h3>${SP.draws ? "Win / draw / loss" : "Win / loss"} probability</h3>
-    <p>The Elo gap gives the expected score.${SP.draws ? ` The draw chance is ${pct(M.d0)} for evenly matched players and shrinks as the gap grows (width ${M.w} Elo).` : ""} Because the same pairs meet hundreds of times, the result is then blended with that pair's own head-to-head record, with a weight of ${M.kPair} matches for the Elo prior. All parameters were chosen by minimizing log-loss on the history.</p>
+    <p>The Elo gap gives the expected score.${SP.draws ? ` The draw chance is ${pct(M.d0)} for evenly matched players and shrinks as the gap grows (width ${M.w} Elo).` : ""} Because the same pairs meet hundreds of times, the result is then blended with that pair's own head-to-head record, with a weight of ${M.kPair} matches for the Elo prior. All parameters were chosen by minimizing log-loss on the history (the head-to-head weight on the later half only, out of sample).</p>
+    ${M.agree ? `<h3 style="margin-top:14px">How the winner pick performs</h3><p class="dim">Leak-free replay of every match (only information known before kick-off). A draw counts as a miss.</p>
+    <div class="tbl-wrap"><table class="tbl" style="min-width:0"><thead><tr><th class="l">When</th><th>Matches</th><th>Winner hit</th></tr></thead><tbody>
+    ${[["all", "Every match (model pick)"], ["agree", "Elo and head-to-head agree"], ["all3", "Elo, head-to-head and form all agree"], ["disElo", "Elo and H2H disagree: follow Elo"], ["disH2h", "Elo and H2H disagree: follow H2H"], ["p60", "Model 60% or more"], ["p70", "Model 70% or more"]].filter(([k]) => M.agree[k] && M.agree[k][0]).map(([k, l]) => `<tr style="cursor:default"><td class="l">${l}</td><td>${M.agree[k][0].toLocaleString("en-US")}</td><td class="pct">${pct(M.agree[k][1])}</td></tr>`).join("")}</tbody></table></div>` : ""}
     <h3>Form</h3>
     <p>Combines the Elo change over 7 days with results above or below expectation in the last 10 matches. ${chip("hot")} strong rise, ${chip("up")} rising, ${chip("flat")} steady, ${chip("down")} falling, ${chip("cold")} sharp drop.</p>
     <h3>Analyst and edge</h3>
@@ -673,10 +676,28 @@ function dataPick(m, A, B, rows) {
     total = { label: `${over ? "Over" : "Under"} ${ln}`, p: pp, over, line: ln };
     why.push(`${U().Many}: ${over ? "over" : "under"} ${ln} in ${pct(pp)} of their recent games${exp ? ` · expected total ${exp.toFixed(1)}` : ""}.`);
   }
-  return { k, label, p, conf, total, why };
+  const ai = agreeInfo(m);
+  why.splice(1, 0, ai.text);
+  return { k, label, p, conf, total, why, agree: { tag: ai.tag, cls: ai.cls } };
+}
+
+/* do Elo, head-to-head and form point the same way? (hit rates from the leak-free backtest) */
+function agreeInfo(m) {
+  const ag = (D.model && D.model.agree) || {};
+  const hr = (k) => (ag[k] && ag[k][1] != null ? pct(ag[k][1]) : "–");
+  const elo = (m.ea != null && m.eb != null ? m.ea >= m.eb : (P[m.a] ? P[m.a].elo : 0) >= (P[m.b] ? P[m.b].elo : 0)) ? "A" : "B";
+  const [hw, , hl] = m.h2h || [0, 0, 0];
+  const h2 = hw + hl + (m.h2h ? m.h2h[1] : 0) < 3 || hw === hl ? null : hw > hl ? "A" : "B";
+  const sc = (n) => { const l = (P[n] && P[n].l10) || ""; return l.length ? [...l].reduce((t, c) => t + (c === "W" ? 1 : c === "D" ? 0.5 : 0), 0) / l.length : null; };
+  const fa = sc(m.a), fb = sc(m.b), fm = fa == null || fb == null || fa === fb ? null : fa > fb ? "A" : "B";
+  const nm = (k) => (k === "A" ? m.a : m.b);
+  if (!h2) return { kind: "noh2h", side: elo, cls: "", tag: "No H2H yet", text: "Fewer than 3 meetings (or level): Elo decides alone." };
+  if (h2 === elo && fm === elo) return { kind: "all3", side: elo, cls: "ok", tag: "Elo + H2H + form agree", text: `Elo, head-to-head and last-10 form all favour ${nm(elo)}. Historically this pick wins ${hr("all3")}.` };
+  if (h2 === elo) return { kind: "agree", side: elo, cls: "ok", tag: "Elo + H2H agree", text: `Elo and head-to-head both favour ${nm(elo)}. Historically this pick wins ${hr("agree")}.` };
+  return { kind: "dis", side: h2, cls: "ko", tag: "Elo vs H2H disagree", text: `Elo favours ${nm(elo)} but the head-to-head favours ${nm(h2)}. Historically the Elo side wins ${hr("disElo")} and the H2H side ${hr("disH2h")}: risky, consider skipping.` };
 }
 function dataPickLine(dp) {
-  return `<div class="pv-pick"><span class="dim">Data pick</span> <b>${esc(dp.label)}</b> <span class="rt ${dp.conf[1]}">${dp.conf[0]}</span>${dp.total ? ` <span class="dim">·</span> <b>${esc(dp.total.label)}</b> <span class="dim">${pct(dp.total.p)}</span>` : ""}</div>`;
+  return `<div class="pv-pick"><span class="dim">Data pick</span> <b>${esc(dp.label)}</b> <span class="rt ${dp.conf[1]}">${dp.conf[0]}</span>${dp.agree ? ` <span class="pv-tag ${dp.agree.cls}">${esc(dp.agree.tag)}</span>` : ""}${dp.total ? ` <span class="dim">·</span> <b>${esc(dp.total.label)}</b> <span class="dim">${pct(dp.total.p)}</span>` : ""}</div>`;
 }
 /* keep each preview (and the pick as it stood before kick-off) until 30 min after the start */
 const PV_KEEP = 30;
@@ -697,7 +718,7 @@ function pvFreeze() {
     const A = sideStats(m.a, m.ta, m.start), B = sideStats(m.b, m.tb, m.start);
     if (!A || !B) return;
     const dp = dataPick(m, A, B, compareRows(m, A, B));
-    PVS.set(m.id, { m: JSON.parse(JSON.stringify(m)), dp: { k: dp.k, label: dp.label, conf: dp.conf, p: dp.p, total: dp.total } });
+    PVS.set(m.id, { m: JSON.parse(JSON.stringify(m)), dp: { k: dp.k, label: dp.label, conf: dp.conf, p: dp.p, total: dp.total, agree: dp.agree } });
   };
   D.upcoming.forEach((m) => snap(m, !started(m)));           // before kick-off: keep the latest numbers
   (D.justStarted || []).forEach((m) => snap(m, false));      // settled already: pre-match numbers from the server
