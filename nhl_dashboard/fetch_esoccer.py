@@ -476,7 +476,13 @@ def main():
         t["draws"] += m["res"] == "T"
         t["players"].update((m["a"], m["b"]))
 
+    sys.path.insert(0, str(HERE))
+    import picks
+    track = picks.esports(args.sport, up, done, now)
+    print(f"picks: {track['all']}", file=sys.stderr)
+
     out = dict(
+        picks=track,
         generatedAt=now.isoformat(timespec="seconds"), source=f"Kalshi {SERIES} (settled by Drafted.gg)",
         sport=dict(key=args.sport, name=SPORT["name"], series=SERIES, kslug=SPORT["kslug"], draws=SPORT["draws"],
                    unit=SPORT["unit"], drafted=SPORT["drafted"], lines=LINES),
