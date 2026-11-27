@@ -298,3 +298,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 
 .why b { color: var(--fg); }
 .kal-live { color: var(--hot) !important; }
 .tab-intro { margin: 0; font-size: 13.5px; color: var(--fg-2); padding: 10px 14px; border-left: 3px solid var(--accent); background: var(--panel); border-radius: 0 10px 10px 0; }
+.toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); transform: translate(-50%, 20px); opacity: 0; pointer-events: none; z-index: 80; max-width: min(92vw, 560px); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 13px; font-weight: 600; box-shadow: 0 8px 24px rgba(0,0,0,.25); transition: opacity .2s, transform .2s; }
+.toast.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+.toast a { color: inherit; text-decoration: underline; }
+.theme-btn:disabled { opacity: .6; cursor: progress; }
+.kal-all summary { cursor: pointer; font-weight: 600; font-size: 13px; padding: 6px 0; }
+.kal-all summary:hover { color: var(--accent); }
+.game > * { min-width: 0; }
+.game:has(details.kal-all[open]) { grid-column: 1 / -1; }
