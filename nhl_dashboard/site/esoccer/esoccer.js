@@ -230,7 +230,7 @@ function viewMatches(app) {
   app.innerHTML = `<div class="view">
     <div>${tourSeg("tour-seg")}</div>
     <section class="panel"><div class="panel-h"><h2>Match previews</h2><span class="sub">Who is stronger in each match · started matches stay 30 min with the result and whether the data pick hit · tap "Full comparison" for every stat</span></div>
-      <div class="panel-b"><div class="ana-top">${pv.map((x) => previewCard(x.m, x.dp)).join("") || `<div class="empty">No upcoming matches listed right now.</div>`}</div></div></section>
+      <div class="panel-b"><div class="ana-top">${pv.map((x) => previewCard(x.m, x.dp, x.pre)).join("") || `<div class="empty">No upcoming matches listed right now.</div>`}</div></div></section>
     <section class="panel"><div class="panel-h"><h2>Upcoming</h2><span class="sub">Ours vs Kalshi Yes price · ${SP.draws ? "A / Draw / B" : "A / B"}</span></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:900px">
       <thead><tr><th class="l">Start</th><th class="l">Tournament</th><th class="l">Match</th><th>A ours</th><th>A Kalshi</th>${SP.draws ? "<th>Draw ours</th><th>Draw Kalshi</th>" : ""}<th>B ours</th><th>B Kalshi</th><th class="l">H2H (${SP.draws ? "A-D-B" : "A-B"})</th><th title="Expected score from each player's scoring and conceding averages">Exp. score</th><th class="l"></th></tr></thead>
       <tbody>${ups.map((m) => `<tr data-open-match="${esc(m.id)}" style="cursor:pointer${started(m) ? ";opacity:.55" : ""}"><td class="l">${tShort(m.start)}${started(m) ? ' <span class="kal-live">● live</span>' : ""}</td><td class="l">${tourShort(m.tour)}</td>
@@ -740,7 +740,7 @@ function pvFreeze() {
     const A = sideStats(m.a, m.ta, m.start), B = sideStats(m.b, m.tb, m.start);
     if (!A || !B) return;
     const dp = dataPick(m, A, B, compareRows(m, A, B));
-    PVS.set(m.id, { m: JSON.parse(JSON.stringify(m)), dp: { k: dp.k, label: dp.label, conf: dp.conf, p: dp.p, total: dp.total, agree: dp.agree } });
+    PVS.set(m.id, { pre: !started(m), m: JSON.parse(JSON.stringify(m)), dp: { k: dp.k, label: dp.label, conf: dp.conf, p: dp.p, total: dp.total, agree: dp.agree } });
   };
   D.upcoming.forEach((m) => snap(m, !started(m)));           // before kick-off: keep the latest numbers
   (D.justStarted || []).forEach((m) => snap(m, false));      // settled already: pre-match numbers from the server
@@ -764,20 +764,34 @@ function pvStatus(m, dp) {
   if (dp.total) tot = r.score ? tag((r.score[0] + r.score[1] > dp.total.line) === dp.total.over, `${dp.total.label} (total ${r.score[0] + r.score[1]})`) : tag(null, `${dp.total.label} · waiting for score`);
   return { head: `<b>Final</b> · ${ago}`, line: `<div class="pv-res"><b>${esc(winTxt)}${sc}</b> ${tag(hit, dp.label)} ${tot}</div>` };
 }
-function previewCard(m, frozen) {
+/* a Kalshi quote is only meaningful with a tight book: a wide bid-ask (e.g. asks adding up to 2x) means nobody is really trading */
+function kq(pr) {
+  if (!pr || pr.ask == null) return "–";
+  const wide = pr.bid == null || pr.ask - pr.bid > 0.12;
+  return wide ? `<span title="Bid ${cents(pr.bid)} / ask ${cents(pr.ask)}: almost no one trading, not a real price">thin</span>` : cents(pr.ask);
+}
+function kalLine(m, k, pre) {
+  const pr = (o) => (k === "A" ? o.pa : k === "B" ? o.pb : o.pt);
+  if (!started(m)) return `Kalshi ${kq(pr(m))}`;
+  const live = D.upcoming.find((x) => x.id === m.id);
+  const at = pre ? `kick-off ${kq(pr(m))}` : "";
+  const lv = live ? `<span class="kal-live">live</span> ${kq(pr(live))}` : "";
+  return [at, lv].filter(Boolean).join(" · ") || "Kalshi –";
+}
+function previewCard(m, frozen, pre) {
   const A = sideStats(m.a, m.ta, m.start), B = sideStats(m.b, m.tb, m.start);
   if (!A || !B) return "";
   const rows = compareRows(m, A, B);
   const mins = minsTo(m.start);
   const dp = frozen && mins <= 0 ? frozen : dataPick(m, A, B, rows);
   const st = pvStatus(m, dp);
-  const side = (S, nm, team, prob, ask) => `<div class="pv-side"><div class="nm" data-pl="${esc(nm)}" style="cursor:pointer">${esc(nm)}</div>
+  const side = (S, nm, team, prob, k) => `<div class="pv-side"><div class="nm" data-pl="${esc(nm)}" style="cursor:pointer">${esc(nm)}</div>
     <div class="dim" style="font-size:12px">${esc(team)}</div><div style="margin:4px 0">${chip(S.p.form)}</div>${resStrip(S.p.l10)}
-    <div class="pv-num"><b class="num">${pct(prob)}</b><small>ours · Kalshi ${cents(ask)}</small></div><div class="dim" style="font-size:12px">Elo ${Math.round(S.p.elo)} · 24 h ${recTxt(S.d24)}</div></div>`;
+    <div class="pv-num"><b class="num">${pct(prob)}</b><small>ours${started(m) ? " (kick-off)" : ""} · ${kalLine(m, k, pre)}</small></div><div class="dim" style="font-size:12px">Elo ${Math.round(S.p.elo)} · 24 h ${recTxt(S.d24)}</div></div>`;
   return `<article class="pickc pv" data-match="${esc(m.id)}">${fireBadge(m)}
     <div class="dim" style="font-size:12px;display:flex;gap:8px;flex-wrap:wrap">${esc(tourShort(m.tour))} · ${st.head} ${kLink(m.id)}</div>
     ${st.line}
-    <div class="pv-grid">${side(A, m.a, m.ta, m.ma, m.pa.ask)}<div class="pv-vs">vs${SP.draws ? `<small>Draw ${pct(m.md)}<br>K ${cents(m.pt.ask)}</small>` : ""}</div>${side(B, m.b, m.tb, m.mb, m.pb.ask)}</div>
+    <div class="pv-grid">${side(A, m.a, m.ta, m.ma, "A")}<div class="pv-vs">vs${SP.draws ? `<small>Draw ${pct(m.md)}<br>${kalLine(m, "T", pre)}</small>` : ""}</div>${side(B, m.b, m.tb, m.mb, "B")}</div>
     <div>${h2hBar(m)}</div>
     <div style="font-size:12.5px">${verdict(m, rows)}</div>
     ${dataPickLine(dp)}${mins <= 0 ? `<div class="dim" style="font-size:11px">Pick and % frozen at kick-off.</div>` : ""}
