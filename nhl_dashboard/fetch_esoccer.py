@@ -231,6 +231,25 @@ def calibration(rows):
     return dict(n=len(rows), win=win, draw=draw, brier=round(brier, 4), brierBase=round(base, 4))
 
 
+def goal_stats(rows, now):
+    """rows: [iso, gf, ga, h1f, h1a] for matches with a Drafted.gg score."""
+    if not rows:
+        return None
+    def agg(rs):
+        n = len(rs)
+        if not n:
+            return None
+        tot = [r[1] + r[2] for r in rs]
+        h1 = [r for r in rs if r[3] is not None]
+        return dict(n=n, gf=round(sum(r[1] for r in rs) / n, 2), ga=round(sum(r[2] for r in rs) / n, 2),
+                    tot=round(sum(tot) / n, 2), btts=round(sum(1 for r in rs if r[1] and r[2]) / n, 3),
+                    o45=round(sum(1 for t in tot if t > 4.5) / n, 3), o55=round(sum(1 for t in tot if t > 5.5) / n, 3),
+                    o65=round(sum(1 for t in tot if t > 6.5) / n, 3), cs=round(sum(1 for r in rs if r[2] == 0) / n, 3),
+                    h1gf=round(sum(r[3] for r in h1) / len(h1), 2) if h1 else None)
+    day = (now - timedelta(hours=24)).isoformat()[:16]
+    return dict(all=agg(rows), d24=agg([r for r in rows if r[0] >= day]), l10=agg(rows[-10:]))
+
+
 def form_label(delta7, exp_diff10):
     """delta7 = Elo change over the last 7 days; exp_diff10 = points above expectation over last 10."""
     score = delta7 / 4 + exp_diff10 * 6
@@ -248,6 +267,7 @@ def form_label(delta7, exp_diff10):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=30)
+    ap.add_argument("--drafted-hours", type=int, default=48, help="hours of Drafted.gg score pages to keep current (0 = skip)")
     args = ap.parse_args()
     now = datetime.now(timezone.utc)
     t0 = time.time()
@@ -267,6 +287,37 @@ def main():
     print(f"markets fetched {len(rows)}, matches cached {len(cache)}", file=sys.stderr)
 
     done = sorted([m for m in cache.values() if m.get("res")], key=lambda m: m["start"])
+
+    # ---- Drafted.gg scores, matched to Kalshi results by players + kick-off time (±7 min)
+    dmatch = {"drafted": 0, "matched": 0, "agree": 0}
+    if args.drafted_hours > 0:
+        sys.path.insert(0, str(HERE))
+        import drafted
+        dg = drafted.update(args.drafted_hours, lambda m: print(m, file=sys.stderr))
+        dmatch["drafted"] = len(dg)
+        idx = defaultdict(list)
+        for g in dg:
+            if g.get("t"):
+                idx[frozenset((g["a"], g["b"]))].append(g)
+        for m in done:
+            cands = idx.get(frozenset((m["a"], m["b"])))
+            if not cands:
+                continue
+            ts = datetime.fromisoformat(m["start"].replace("Z", "+00:00"))
+            best = min(cands, key=lambda g: abs(datetime.fromisoformat(g["t"].replace("Z", "+00:00")) - ts))
+            if abs(datetime.fromisoformat(best["t"].replace("Z", "+00:00")) - ts) > timedelta(minutes=7):
+                continue
+            flip = best["a"] != m["a"]
+            ga, gb = (best["sb"], best["sa"]) if flip else (best["sa"], best["sb"])
+            h1 = h2 = None
+            if best.get("h1") is not None:
+                h1 = [best["h1"][1], best["h1"][0]] if flip else best["h1"]
+                h2 = [best["h2"][1], best["h2"][0]] if flip else best["h2"]
+            m["score"] = [ga, gb]
+            m["h1"] = h1
+            dmatch["matched"] += 1
+            dmatch["agree"] += (m["res"] == "A") == (ga > gb) and (m["res"] == "T") == (ga == gb)
+        print(f"drafted scores matched to Kalshi: {dmatch}", file=sys.stderr)
     upcoming = sorted([m for m in cache.values() if not m.get("res") and m["status"] == "open"], key=lambda m: m["start"])
 
     params = fit(done)
@@ -278,7 +329,7 @@ def main():
 
     # ---- per-player aggregates
     P = defaultdict(lambda: dict(w=0, d=0, l=0, gp=0, res=[], teams=defaultdict(lambda: [0, 0, 0]), tours=set(),
-                                 hours=defaultdict(lambda: [0, 0, 0]), exp=[]))
+                                 hours=defaultdict(lambda: [0, 0, 0]), exp=[], goals=[]))
     h2h = defaultdict(lambda: [0, 0, 0])  # (a,b) -> wins a, draws, wins b
     Rrun = defaultdict(lambda: 1500.0)
     seen = defaultdict(int)
@@ -292,7 +343,15 @@ def main():
             p["gp"] += 1
             k = "w" if s == 1 else "d" if s == 0.5 else "l"
             p[k] += 1
-            p["res"].append([m["start"], opp, team, {"w": "W", "d": "D", "l": "L"}[k], m["id"]])
+            sc = m.get("score")
+            gf_ga = None
+            if sc:
+                gf_ga = sc if me == a else [sc[1], sc[0]]
+                h1 = m.get("h1")
+                h1f = (h1[0] if me == a else h1[1]) if h1 else None
+                h1a = (h1[1] if me == a else h1[0]) if h1 else None
+                p["goals"].append([m["start"], gf_ga[0], gf_ga[1], h1f, h1a])
+            p["res"].append([m["start"], opp, team, {"w": "W", "d": "D", "l": "L"}[k], m["id"], gf_ga])
             p["teams"][team][{"w": 0, "d": 1, "l": 2}[k]] += 1
             p["hours"][hour][{"w": 0, "d": 1, "l": 2}[k]] += 1
             p["tours"].add(m["tour"])
@@ -355,13 +414,14 @@ def main():
             l20d=sum(1 for r in p["res"][-20:] if r[3] == "D"), l20l=sum(1 for r in p["res"][-20:] if r[3] == "L"),
             lastPlayed=p["res"][-1][0] if p["res"] else None,
             teams=teams[:8], hours=[[hh, *v] for hh, v in sorted(p["hours"].items())],
-            candles=candles[-31:], log=p["res"][-40:],
+            candles=candles[-31:], log=p["res"][-40:], goals=goal_stats(p["goals"], now),
         ))
     players.sort(key=lambda x: -x["elo"])
     rank = {p["name"]: i + 1 for i, p in enumerate(players)}
     for p in players:
         p["rank"] = rank[p["name"]]
 
+    pl_goals = {p["name"]: p["goals"] for p in players}
     # ---- upcoming with model probabilities
     up = []
     for m in upcoming:
@@ -370,11 +430,13 @@ def main():
         if key[0] != m["a"]:
             rec = [rec[2], rec[1], rec[0]]
         pa, pd, pb = blend_pair(*probs(R[m["a"]], R[m["b"]], params["d0"], params["w"]), rec)
+        ga_, gb_ = (pl_goals.get(m["a"]) or {}).get("all"), (pl_goals.get(m["b"]) or {}).get("all")
+        xg = [round((ga_["gf"] + gb_["ga"]) / 2, 2), round((gb_["gf"] + ga_["ga"]) / 2, 2)] if ga_ and gb_ else None
         up.append(dict(**{k: m[k] for k in ("id", "tour", "start", "a", "b", "ta", "tb", "pa", "pb", "pt")},
-                       ma=round(pa, 4), md=round(pd, 4), mb=round(pb, 4), h2h=rec,
+                       ma=round(pa, 4), md=round(pd, 4), mb=round(pb, 4), h2h=rec, xg=xg,
                        ea=round(R[m["a"]], 1), eb=round(R[m["b"]], 1)))
 
-    recent = [dict(**{k: m[k] for k in ("id", "tour", "start", "a", "b", "ta", "tb", "res")}) for m in done[-300:]]
+    recent = [dict(**{k: m[k] for k in ("id", "tour", "start", "a", "b", "ta", "tb", "res")}, score=m.get("score"), h1=m.get("h1")) for m in done[-300:]]
     h2h_out = [[k[0], k[1], *v] for k, v in h2h.items() if sum(v) >= 3]
     tours = defaultdict(lambda: dict(matches=0, draws=0, players=set()))
     for m in done:
@@ -388,7 +450,7 @@ def main():
         days=args.days, matches=len(done), firstMatch=done[0]["start"] if done else None, lastMatch=done[-1]["start"] if done else None,
         model=dict(**params, calibration=calib),
         tournaments=[dict(name=k, matches=v["matches"], drawRate=round(v["draws"] / max(1, v["matches"]), 3), players=len(v["players"])) for k, v in sorted(tours.items())],
-        players=players, upcoming=up, recent=recent, h2h=h2h_out,
+        players=players, upcoming=up, recent=recent, h2h=h2h_out, drafted=dmatch,
         links=dict(series="https://kalshi.com/markets/kxesoccergame/esoccer-game"),
     )
     OUT.parent.mkdir(parents=True, exist_ok=True)

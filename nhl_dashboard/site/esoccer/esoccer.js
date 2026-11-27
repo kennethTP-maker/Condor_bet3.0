@@ -49,6 +49,9 @@ function edgeCell(ours, ask) {
   return `<span class="edge ${cls}" title="Our probability minus the Kalshi Yes price">${d > 0 ? "+" : ""}${d} pts</span>`;
 }
 const started = (m) => minsTo(m.start) <= 0;
+const f2 = (x) => (x == null ? "–" : Number(x).toFixed(2));
+const G = (p, k = "all") => (p && p.goals && p.goals[k]) || null;
+const scoreTxt = (sc, h1) => (sc ? `${sc[0]}–${sc[1]}${h1 ? ` <span class="dim">(HT ${h1[0]}–${h1[1]})</span>` : ""}` : `<span class="dim">–</span>`);
 const inTour = (p) => st.tour === "all" || p.tours.includes(st.tour);
 const mInTour = (m) => st.tour === "all" || m.tour === st.tour;
 
@@ -132,6 +135,8 @@ function reasons(m, pick) {
   if (A && B) r.push(`Elo ${m.a} ${Math.round(m.ea)} vs ${m.b} ${Math.round(m.eb)} (${sgn(Math.round(m.ea - m.eb))}).`);
   const [hw, hd, hl] = m.h2h; const hn = hw + hd + hl;
   if (hn) r.push(`Head-to-head: ${m.a} ${hw}W ${hd}D ${hl}L in ${hn} meetings.`);
+  const ga = G(A, "d24"), gb = G(B, "d24");
+  if (ga && gb && ga.n >= 3 && gb.n >= 3) r.push(`Last 24h: ${m.a} scores ${f2(ga.gf)} / concedes ${f2(ga.ga)} per game; ${m.b} ${f2(gb.gf)} / ${f2(gb.ga)}.`);
   const sub = pick.k === "B" ? B : pick.k === "A" ? A : null;
   if (sub) {
     if (sub.form === "hot" || sub.form === "up") r.push(`${FORM[sub.form].icon} ${sub.name} is ${FORM[sub.form].label.toLowerCase()}: last 10 ${sub.l10} (Elo ${sgn(sub.elo7, 0)} in 7 days).`);
@@ -147,7 +152,7 @@ function matchCard(m, withReasons = true) {
   const [rl, rc] = show ? rating(best.edge) : ["", ""];
   return `<article class="pickc">
     <div class="pickc-h">${av(m.a)}<div style="min-width:0"><div class="nm"><span data-pl="${esc(m.a)}" style="cursor:pointer">${esc(m.a)}</span>&nbsp;<span class="dim">vs</span>&nbsp;<span data-pl="${esc(m.b)}" style="cursor:pointer">${esc(m.b)}</span> ${kLink(m.id)}</div>
-      <div class="dim" style="font-size:12px">${esc(m.tour)} · ${esc(m.ta)} vs ${esc(m.tb)} · ${when}</div></div>${show ? `<span class="rt ${rc}">${rl}</span>` : ""}</div>
+      <div class="dim" style="font-size:12px">${esc(m.tour)} · ${esc(m.ta)} vs ${esc(m.tb)} · ${when}${m.xg ? ` · exp. score ${m.xg[0].toFixed(1)}–${m.xg[1].toFixed(1)}` : ""}</div></div>${show ? `<span class="rt ${rc}">${rl}</span>` : ""}</div>
     <div class="tbl-wrap"><table class="tbl" style="min-width:0"><thead><tr><th class="l">Outcome</th><th>Ours</th><th>Kalshi</th><th>Edge</th></tr></thead><tbody>
       ${opts.map((o) => `<tr style="cursor:default${show && o.k === best.k ? ";font-weight:700" : ""}"><td class="l">${esc(o.label)}</td><td class="pct">${pct(o.p)}</td><td>${cents(o.ask)}</td><td>${edgeCell(o.p, o.ask)}</td></tr>`).join("")}</tbody></table></div>
     ${show && withReasons ? `<div class="pickc-m"><span class="mk mk-point">Pick: ${esc(best.label)}</span></div><ul class="why">${reasons(m, best).map((t) => `<li>${t}</li>`).join("")}</ul>` : show ? "" : `<div class="dim" style="font-size:12px">No value: Kalshi prices are at or above our probabilities.</div>`}
@@ -182,6 +187,10 @@ function viewSummary(app) {
     </div>
     <div class="grid g2">${lists.map(([f, arr]) => `<section class="panel top-${f}"><div class="panel-h trend-head"><h3>${chip(f)}</h3></div><div class="panel-b"><div class="tlist">
       ${arr.map((p) => `<button class="trow" data-pl="${esc(p.name)}" type="button">${av(p.name)}<span><div class="nm">${esc(p.name)}</div><div class="sub">${p.tours.map(tourShort).join(", ")} · Elo ${Math.round(p.elo)} · streak ${p.streak}</div></span>${resStrip(p.l10)}<span class="delta ${p.elo7 >= 0 ? "pos" : "neg"}">${sgn(p.elo7)}</span></button>`).join("") || `<div class="empty">Nobody right now.</div>`}</div></div></section>`).join("")}</div>
+    ${(() => { const rows = pl.filter((p) => G(p, "d24") && G(p, "d24").n >= 5).sort((a, b) => G(b, "d24").gf - G(a, "d24").gf).slice(0, 10);
+      return rows.length ? `<section class="panel"><div class="panel-h"><h2>Last 24 hours</h2><span class="sub">Drafted.gg scores · most goals scored per game (5+ matches)</span></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:560px">
+      <thead><tr><th class="l">Player</th><th>Matches</th><th>GF/G</th><th>GA/G</th><th>Goals/G</th><th>BTTS</th><th>O5.5</th></tr></thead><tbody>
+      ${rows.map((p) => { const g = G(p, "d24"); return `<tr data-pl="${esc(p.name)}"><td class="l"><span class="pl">${av(p.name)}<b>${esc(p.name)}</b> <span class="dim">${p.tours.map(tourShort).join(", ")}</span></span></td><td>${g.n}</td><td><b>${f2(g.gf)}</b></td><td>${f2(g.ga)}</td><td>${f2(g.tot)}</td><td>${pct(g.btts)}</td><td>${pct(g.o55)}</td></tr>`; }).join("")}</tbody></table></div></div></section>` : ""; })()}
     <section class="panel"><div class="panel-h"><h2>Tournaments</h2></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:420px"><thead><tr><th class="l">Tournament</th><th>Matches</th><th>Players</th><th>Draw rate</th></tr></thead><tbody>
       ${D.tournaments.map((t) => `<tr style="cursor:default"><td class="l">${esc(t.name)}</td><td>${t.matches.toLocaleString("en-US")}</td><td>${t.players}</td><td>${pct(t.drawRate)}</td></tr>`).join("")}</tbody></table></div></div></section>
   </div>`;
@@ -213,21 +222,22 @@ function viewMatches(app) {
   app.innerHTML = `<div class="view">
     <div>${tourSeg("tour-seg")}</div>
     <section class="panel"><div class="panel-h"><h2>Upcoming</h2><span class="sub">Ours vs Kalshi Yes price · A / Draw / B</span></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:900px">
-      <thead><tr><th class="l">Start</th><th class="l">Tournament</th><th class="l">Match</th><th>A ours</th><th>A Kalshi</th><th>Draw ours</th><th>Draw Kalshi</th><th>B ours</th><th>B Kalshi</th><th class="l">H2H (A-D-B)</th><th class="l"></th></tr></thead>
+      <thead><tr><th class="l">Start</th><th class="l">Tournament</th><th class="l">Match</th><th>A ours</th><th>A Kalshi</th><th>Draw ours</th><th>Draw Kalshi</th><th>B ours</th><th>B Kalshi</th><th class="l">H2H (A-D-B)</th><th title="Expected goals from each player's scoring and conceding averages">Exp. score</th><th class="l"></th></tr></thead>
       <tbody>${ups.map((m) => `<tr style="cursor:default${started(m) ? ";opacity:.55" : ""}"><td class="l">${tShort(m.start)}${started(m) ? ' <span class="kal-live">● live</span>' : ""}</td><td class="l">${tourShort(m.tour)}</td>
         <td class="l"><span data-pl="${esc(m.a)}" style="cursor:pointer;font-weight:600">${esc(m.a)}</span> <span class="dim">(${esc(m.ta)})</span> vs <span data-pl="${esc(m.b)}" style="cursor:pointer;font-weight:600">${esc(m.b)}</span> <span class="dim">(${esc(m.tb)})</span></td>
         <td class="pct">${pct(m.ma)}</td><td>${cents(m.pa.ask)} ${started(m) ? "" : edgeCell(m.ma, m.pa.ask)}</td><td class="pct">${pct(m.md)}</td><td>${cents(m.pt.ask)} ${started(m) ? "" : edgeCell(m.md, m.pt.ask)}</td><td class="pct">${pct(m.mb)}</td><td>${cents(m.pb.ask)} ${started(m) ? "" : edgeCell(m.mb, m.pb.ask)}</td>
-        <td class="l">${m.h2h.join("-")}</td><td class="l">${kLink(m.id)}</td></tr>`).join("") || `<tr><td colspan="11"><div class="empty">No upcoming matches listed.</div></td></tr>`}</tbody></table></div>
+        <td class="l">${m.h2h.join("-")}</td><td>${m.xg ? `${m.xg[0].toFixed(1)}–${m.xg[1].toFixed(1)}` : "–"}</td><td class="l">${kLink(m.id)}</td></tr>`).join("") || `<tr><td colspan="12"><div class="empty">No upcoming matches listed.</div></td></tr>`}</tbody></table></div>
       <p class="chart-note">Matches that already started at the last update are dimmed; their prices were in-game.</p></div></section>
     <section class="panel"><div class="panel-h"><h2>Latest results</h2></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:640px">
-      <thead><tr><th class="l">Time</th><th class="l">Tournament</th><th class="l">Match</th><th class="l">Result</th></tr></thead>
-      <tbody>${rec.map((m) => `<tr style="cursor:default"><td class="l">${dtShort(m.start)}</td><td class="l">${tourShort(m.tour)}</td><td class="l"><span data-pl="${esc(m.a)}" style="cursor:pointer">${esc(m.a)}</span> <span class="dim">(${esc(m.ta)})</span> vs <span data-pl="${esc(m.b)}" style="cursor:pointer">${esc(m.b)}</span> <span class="dim">(${esc(m.tb)})</span></td><td class="l">${resTxt(m)}</td></tr>`).join("")}</tbody></table></div></div></section>
+      <thead><tr><th class="l">Time</th><th class="l">Tournament</th><th class="l">Match</th><th class="l">Score</th><th class="l">Result</th></tr></thead>
+      <tbody>${rec.map((m) => `<tr style="cursor:default"><td class="l">${dtShort(m.start)}</td><td class="l">${tourShort(m.tour)}</td><td class="l"><span data-pl="${esc(m.a)}" style="cursor:pointer">${esc(m.a)}</span> <span class="dim">(${esc(m.ta)})</span> vs <span data-pl="${esc(m.b)}" style="cursor:pointer">${esc(m.b)}</span> <span class="dim">(${esc(m.tb)})</span></td><td class="l">${scoreTxt(m.score, m.h1)}</td><td class="l">${resTxt(m)}</td></tr>`).join("")}</tbody></table></div></div></section>
   </div>`;
   bindTour("tour-seg");
 }
 
 const COLS = [["rank", "#"], ["name", "Player", "l"], ["tours", "Tournament", "l"], ["gp", "GP"], ["w", "W"], ["d", "D"], ["l", "L"], ["winPct", "Win%"], ["ppg", "Pts/GP"],
-  ["elo", "Elo"], ["elo24", "Elo 24h"], ["elo7", "Elo 7d"], ["l10", "Last 10", "l"], ["streak", "Streak"], ["form", "Form", "l"]];
+  ["elo", "Elo"], ["elo24", "Elo 24h"], ["elo7", "Elo 7d"], ["gf", "GF/G"], ["ga", "GA/G"], ["tot", "Goals/G"], ["btts", "BTTS"], ["o55", "O5.5"],
+  ["l10", "Last 10", "l"], ["streak", "Streak"], ["form", "Form", "l"]];
 const FORD = { hot: 4, up: 3, flat: 2, down: 1, cold: 0 };
 function viewPlayers(app) {
   app.innerHTML = `<div class="view"><section class="panel"><div class="panel-h"><h2>Players</h2><span class="sub" id="pc"></span></div><div class="panel-b" style="display:grid;gap:14px">
@@ -239,11 +249,13 @@ function viewPlayers(app) {
     const q = st.q.toLowerCase();
     const rows = D.players.filter((p) => inTour(p) && p.gp >= st.minGames && (!q || p.name.toLowerCase().includes(q)));
     const k = st.sort;
-    rows.sort((a, b) => { const x = k === "form" ? FORD[a.form] : k === "tours" ? a.tours.join() : a[k], y = k === "form" ? FORD[b.form] : k === "tours" ? b.tours.join() : b[k]; return (typeof x === "string" ? x.localeCompare(y) : x - y) * st.dir; });
+    const val = (p) => (k === "form" ? FORD[p.form] : k === "tours" ? p.tours.join() : ["gf", "ga", "tot", "btts", "o55"].includes(k) ? (G(p) ? G(p)[k] : -1) : p[k]);
+    rows.sort((a, b) => { const x = val(a), y = val(b); return (typeof x === "string" ? x.localeCompare(y) : x - y) * st.dir; });
     $("#pc").textContent = `${rows.length} players`;
     $("#pt tbody").innerHTML = rows.map((p) => `<tr data-pl="${esc(p.name)}"><td>${p.rank}</td><td class="l"><span class="pl">${av(p.name)}<b>${esc(p.name)}</b></span></td><td class="l">${p.tours.map(tourShort).join(", ")}</td>
       <td>${p.gp}</td><td>${p.w}</td><td>${p.d}</td><td>${p.l}</td><td><b>${pct(p.winPct)}</b></td><td>${p.ppg.toFixed(2)}</td><td><b>${Math.round(p.elo)}</b></td>
-      <td class="${p.elo24 >= 0 ? "pos" : "neg"}">${sgn(p.elo24)}</td><td class="${p.elo7 >= 0 ? "pos" : "neg"}">${sgn(p.elo7)}</td><td class="l">${resStrip(p.l10)}</td><td>${esc(p.streak)}</td><td class="l">${chip(p.form)}</td></tr>`).join("") || `<tr><td colspan="15"><div class="empty">No players match.</div></td></tr>`;
+      <td class="${p.elo24 >= 0 ? "pos" : "neg"}">${sgn(p.elo24)}</td><td class="${p.elo7 >= 0 ? "pos" : "neg"}">${sgn(p.elo7)}</td>
+      <td>${f2(G(p)?.gf)}</td><td>${f2(G(p)?.ga)}</td><td><b>${f2(G(p)?.tot)}</b></td><td>${pct(G(p)?.btts)}</td><td>${pct(G(p)?.o55)}</td><td class="l">${resStrip(p.l10)}</td><td>${esc(p.streak)}</td><td class="l">${chip(p.form)}</td></tr>`).join("") || `<tr><td colspan="20"><div class="empty">No players match.</div></td></tr>`;
     $("#pt tbody").querySelectorAll("[data-pl]").forEach((el) => el.addEventListener("click", () => openPlayer(el.dataset.pl)));
   };
   $("#q").addEventListener("input", (e) => { st.q = e.target.value; draw(); });
@@ -276,7 +288,7 @@ function viewMethod(app) {
   app.innerHTML = `<div class="view"><section class="panel"><div class="panel-b method">
     <h3>Source</h3>
     <p>Kalshi's public API, series <code>KXESOCCERGAME</code> (eSoccer Game), settled by Drafted.gg. Every match is one Kalshi event with three markets (player A wins, player B wins, draw). Settled markets give the result; open markets give the current Yes price. We keep the last ${D.days} days: ${D.matches.toLocaleString("en-US")} matches from ${dtShort(D.firstMatch)} to ${dtShort(D.lastMatch)}. Tournaments are EA Sports FC matches of 2×4 minutes played around the clock.</p>
-    <p>Kalshi only publishes who won or drew, not the score, so these stats are about results, not goals.</p>
+    <p>Scores come from Drafted.gg's own results pages (the organizer that settles the Kalshi markets), read hour by hour: final score, goals per half and kick-off time. They are matched to the Kalshi results by players and kick-off time. Last run: ${D.drafted ? `${D.drafted.drafted.toLocaleString("en-US")} Drafted matches, ${D.drafted.matched.toLocaleString("en-US")} matched to Kalshi, result agreement ${D.drafted.matched ? pct(D.drafted.agree / D.drafted.matched) : "–"}` : "not available"}. Goal stats (GF/G, GA/G, totals, both teams to score, overs) use only matches with a stored score; ratings and probabilities use every Kalshi result.</p>
     <h3>Elo rating</h3>
     <p>Every player starts at 1500. After each match the winner takes points from the loser in proportion to how surprising the result was (K = ${M.K}, larger for a player's first 20 matches). A draw moves ratings toward each other. The <b>Elo 24h / 7d</b> columns are the change over the last day and week.</p>
     <h3>Win / draw / loss probability</h3>
@@ -305,6 +317,7 @@ function openPlayer(name) {
     <div class="sheet-h">${av(name, "lg")}<div><h2 id="sheet-title">${esc(name)}</h2><div class="facts"><span>${p.tours.join(", ")}</span><span>#${p.rank} by Elo</span>${chip(p.form)}<span>Streak ${esc(p.streak)}</span></div></div>
       <button class="close" type="button" aria-label="Close">×</button></div>
     <div class="statline">${[["GP", p.gp], ["W-D-L", `${p.w}-${p.d}-${p.l}`], ["Win%", pct(p.winPct)], ["Pts/GP", p.ppg.toFixed(2)], ["Elo", Math.round(p.elo)], ["Elo 24h", sgn(p.elo24)], ["Elo 7d", sgn(p.elo7)], ["Last 20", `${p.l20w}-${p.l20d}-${p.l20l}`]].map(([l, v]) => `<div><small>${l}</small><b>${v}</b></div>`).join("")}</div>
+    ${goalsPanel(p)}
     <section class="panel"><div class="panel-h"><h3>Next matches</h3></div><div class="panel-b"><div class="ana-top">${next.map((m) => matchCard(m)).join("") || `<div class="empty">No upcoming match listed on Kalshi.</div>`}</div></div></section>
     <section class="panel"><div class="panel-h"><h3>Daily Elo candles</h3><span class="sub">Green = rating rose that day</span></div><div class="panel-b"><div class="chart-box"><canvas id="m-c"></canvas></div></div></section>
     <div class="grid g2">
@@ -314,8 +327,8 @@ function openPlayer(name) {
     </div>
     <section class="panel"><div class="panel-h"><h3>Most frequent opponents</h3></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:0"><thead><tr><th class="l">Opponent</th><th>W</th><th>D</th><th>L</th><th>Win%</th></tr></thead><tbody>
       ${opp.map((o) => `<tr style="cursor:default"><td class="l">${esc(o[0])}</td><td>${o[1]}</td><td>${o[2]}</td><td>${o[3]}</td><td><b>${pct(o[1] / (o[1] + o[2] + o[3]))}</b></td></tr>`).join("")}</tbody></table></div></div></section>
-    <section class="panel"><div class="panel-h"><h3>Last matches</h3></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:0"><thead><tr><th class="l">Time</th><th class="l">Opponent</th><th class="l">Team</th><th class="l">Result</th></tr></thead><tbody>
-      ${p.log.slice(-15).reverse().map((r) => `<tr style="cursor:default"><td class="l">${dtShort(r[0])}</td><td class="l">${esc(r[1])}</td><td class="l">${esc(r[2])}</td><td class="l">${resStrip(r[3])} ${r[3]}</td></tr>`).join("")}</tbody></table></div></div></section>`;
+    <section class="panel"><div class="panel-h"><h3>Last matches</h3></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:0"><thead><tr><th class="l">Time</th><th class="l">Opponent</th><th class="l">Team</th><th class="l">Score</th><th class="l">Result</th></tr></thead><tbody>
+      ${p.log.slice(-15).reverse().map((r) => `<tr style="cursor:default"><td class="l">${dtShort(r[0])}</td><td class="l">${esc(r[1])}</td><td class="l">${esc(r[2])}</td><td class="l">${r[5] ? `${r[5][0]}–${r[5][1]}` : "–"}</td><td class="l">${resStrip(r[3])} ${r[3]}</td></tr>`).join("")}</tbody></table></div></div></section>`;
   $("#modal").hidden = false; document.body.style.overflow = "hidden"; sh.scrollTop = 0;
   $(".close", sh).addEventListener("click", closeModal);
   sh.querySelectorAll("[data-pl]").forEach((el) => el.addEventListener("click", (e) => { if (!e.target.closest("a")) openPlayer(el.dataset.pl); }));
@@ -327,6 +340,16 @@ function openPlayer(name) {
   const o = baseOpts(); o.plugins.legend.display = false; o.scales.y.ticks.callback = (v) => v + "%"; o.scales.y.max = 100;
   o.plugins.tooltip.callbacks = { label: (it) => { const r = byH[it.dataIndex]; const n = r[0] + r[1] + r[2]; return n ? `${Math.round((100 * r[0]) / n)}% wins · ${r[0]}-${r[1]}-${r[2]}` : "no matches"; } };
   mk($("#m-h"), { type: "bar", data: { labels: byH.map((_, i) => String(i).padStart(2, "0")), datasets: [{ data: byH.map((r) => { const n = r[0] + r[1] + r[2]; return n ? Math.round((100 * r[0]) / n) : null; }), backgroundColor: byH.map((r) => { const n = r[0] + r[1] + r[2]; return n && r[0] / n >= p.winPct ? css("--candle-up") : css("--candle-down"); }), borderRadius: 3 }] }, options: o }, modalCharts);
+}
+function goalsPanel(p) {
+  if (!p.goals) return `<section class="panel"><div class="panel-b dim">No Drafted.gg scores for this player in the stored window yet.</div></section>`;
+  const cols = [["d24", "Last 24 h"], ["l10", "Last 10 scored"], ["all", `All scored (${p.goals.all.n})`]];
+  const row = (lbl, f) => `<tr style="cursor:default"><td class="l">${lbl}</td>${cols.map(([k]) => `<td>${p.goals[k] ? f(p.goals[k]) : "–"}</td>`).join("")}</tr>`;
+  return `<section class="panel"><div class="panel-h"><h3>Goals</h3><span class="sub">From Drafted.gg match scores</span></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:0">
+    <thead><tr><th class="l"></th>${cols.map(([, l]) => `<th>${l}</th>`).join("")}</tr></thead><tbody>
+    ${row("Matches", (g) => g.n)}${row("Goals for / game", (g) => `<b>${f2(g.gf)}</b>`)}${row("Goals against / game", (g) => f2(g.ga))}${row("Total goals / game", (g) => `<b>${f2(g.tot)}</b>`)}
+    ${row("1st-half goals for", (g) => f2(g.h1gf))}${row("Both score", (g) => pct(g.btts))}${row("Over 4.5", (g) => pct(g.o45))}${row("Over 5.5", (g) => pct(g.o55))}${row("Over 6.5", (g) => pct(g.o65))}${row("Clean sheet", (g) => pct(g.cs))}
+    </tbody></table></div></div></section>`;
 }
 function closeModal() { destroy(modalCharts); $("#modal").hidden = true; document.body.style.overflow = ""; }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#modal").hidden) closeModal(); });
