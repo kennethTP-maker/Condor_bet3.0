@@ -325,3 +325,9 @@ td.pv-win { color: var(--up); font-weight: 700; background: color-mix(in srgb, v
 .pv { position: relative; }
 .pv-fire { position: absolute; top: 8px; right: 10px; font-size: 20px; line-height: 1; cursor: help; }
 .pv > .dim:first-of-type { padding-right: 26px; }
+.pv-pt { min-width: 0; font-size: 12.5px; }
+.pv-pt th, .pv-pt td { padding: 4px 6px; text-align: right; }
+.pv-pt th.l, .pv-pt td.l { text-align: left; color: var(--fg-3); }
+.pv-pt tr { cursor: default; }
+.pv-pos { color: var(--up); font-weight: 700; }
+.pv-neg { color: var(--down); }
