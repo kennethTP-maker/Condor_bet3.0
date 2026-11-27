@@ -570,6 +570,15 @@ def main():
         hp.write_text(json.dumps(hh, separators=(",", ":")), encoding="utf-8")
         print(f"OK {hp} ({hp.stat().st_size/1e6:.2f} MB) partidos pbp={hh['games']}", file=sys.stderr)
 
+    # ---- Analyst track record (picks with a Kalshi price, settled from game logs)
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        import picks
+        out["picks"] = picks.nhl(out, hh if caches else None, datetime.now(timezone.utc))
+        print(f"picks: {out['picks']['all']}", file=sys.stderr)
+    except Exception as e:
+        print("picks error:", e, file=sys.stderr)
+
     outp = Path(args.out)
     outp.parent.mkdir(parents=True, exist_ok=True)
     outp.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")

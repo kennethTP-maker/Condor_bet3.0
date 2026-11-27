@@ -217,6 +217,7 @@ function viewAnalyst(app) {
       <div class="panel-b"><div class="ana-top">${withVal.map((x) => matchCard(x.m)).join("") || `<div class="empty">No value picks among the upcoming matches. Ask for an update closer to the next matches.</div>`}</div></div></section>
     <section class="panel"><div class="panel-h"><h2>Other upcoming matches</h2></div>
       <div class="panel-b"><div class="ana-top">${analyzed.filter((x) => !withVal.includes(x)).map((x) => matchCard(x.m, false)).join("") || `<div class="empty">None.</div>`}</div></div></section>
+    ${trackPanel()}
   </div>`;
   bindTour("tour-seg");
 }
@@ -522,6 +523,32 @@ function startLive() {
   liveTick(true);
   LIVE.timer = setInterval(() => { if (!document.hidden) liveTick(false); }, 20000);
   setInterval(paintLive, 1000);
+}
+
+/* ---------------- Analyst track record (built by picks.py) ---------------- */
+function trackPanel() {
+  const T = D.picks;
+  if (!T) return "";
+  const pctv = (x) => (x == null ? "–" : Math.round(x * 100) + "%");
+  const money = (x) => (x == null ? "–" : (x >= 0 ? "+" : "−") + "$" + Math.abs(x).toFixed(2));
+  const cls = (x) => (x == null ? "" : x >= 0 ? "pos" : "neg");
+  const a = T.all;
+  const row = (name, r) => `<tr style="cursor:default"><td class="l">${name}</td><td>${r.picks}</td><td>${r.settled}</td><td><b>${pctv(r.hit)}</b></td><td>${pctv(r.avgProb)}</td><td>${r.avgPrice == null ? "–" : Math.round(r.avgPrice * 100) + "¢"}</td><td class="${cls(r.settled ? r.pnl : null)}"><b>${money(r.settled ? r.pnl : null)}</b></td><td class="${cls(r.roi)}">${r.roi == null ? "–" : (r.roi >= 0 ? "+" : "") + Math.round(r.roi * 100) + "%"}</td></tr>`;
+  const st = (r) => (r.status === "open" ? `<span class="dim">pending</span>` : r.status === "void" ? `<span class="dim">void</span>` : r.won ? `<span class="pos"><b>✓ won</b></span>` : `<span class="neg"><b>✗ lost</b></span>`);
+  return `<section class="panel"><div class="panel-h"><h2>Track record</h2><span class="sub">Every Analyst pick with a Kalshi price, saved before the game${T.since ? " · since " + new Date(T.since).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}</span></div>
+  <div class="panel-b" style="display:grid;gap:14px">
+    <section class="kpis">
+      <div class="kpi"><div class="lbl">Picks</div><div class="val">${a.picks}</div><div class="hint">${a.open} pending</div></div>
+      <div class="kpi"><div class="lbl">Hit rate</div><div class="val">${pctv(a.hit)}</div><div class="hint">expected ${pctv(a.avgProb)} · price ${a.avgPrice == null ? "–" : Math.round(a.avgPrice * 100) + "¢"}</div></div>
+      <div class="kpi"><div class="lbl">Profit</div><div class="val ${cls(a.settled ? a.pnl : null)}">${money(a.settled ? a.pnl : null)}</div><div class="hint">$1 per pick, after Kalshi fees</div></div>
+      <div class="kpi"><div class="lbl">Return</div><div class="val ${cls(a.roi)}">${a.roi == null ? "–" : (a.roi >= 0 ? "+" : "") + Math.round(a.roi * 100) + "%"}</div><div class="hint">${a.settled} settled</div></div>
+    </section>
+    <div class="tbl-wrap"><table class="tbl" style="min-width:620px"><thead><tr><th class="l">Rating</th><th>Picks</th><th>Settled</th><th>Hit</th><th>Expected</th><th>Avg price</th><th>Profit</th><th>Return</th></tr></thead>
+      <tbody>${["Strong", "Good", "Moderate"].map((k) => row(`<span class="rt ${k === "Strong" ? "rt-strong" : k === "Good" ? "rt-good" : "rt-mod"}">${k}</span>`, T.byRating[k])).join("")}${row("<b>All</b>", a)}</tbody></table></div>
+    ${T.recent.length ? `<details><summary style="cursor:pointer;font-weight:600">Latest picks (${T.recent.length})</summary><div class="tbl-wrap" style="margin-top:8px"><table class="tbl" style="min-width:680px"><thead><tr><th class="l">Start</th><th class="l">Game</th><th class="l">Pick</th><th>Ours</th><th>Price</th><th class="l">Rating</th><th class="l">Result</th><th>Profit</th></tr></thead>
+      <tbody>${T.recent.map((r) => `<tr style="cursor:default"><td class="l">${new Date(r.start).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td><td class="l">${esc(r.game || "")}</td><td class="l">${esc(r.label)}</td><td>${pctv(r.p)}</td><td>${Math.round(r.ask * 100)}¢</td><td class="l">${r.rating}</td><td class="l">${st(r)}</td><td class="${cls(r.pnl)}">${r.pnl == null ? "–" : money(r.pnl)}</td></tr>`).join("")}</tbody></table></div></details>` : ""}
+    <p class="chart-note" style="margin:0">Picks are recorded at each data update with the price at that moment, so your own entry price can differ. Results fill in as games finish. A few days of picks are needed before the numbers mean much.</p>
+  </div></section>`;
 }
 
 boot();
