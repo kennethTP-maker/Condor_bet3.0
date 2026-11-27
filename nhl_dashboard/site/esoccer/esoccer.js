@@ -647,6 +647,37 @@ function h2hBar(m) {
   return `<span style="display:flex;width:100%;max-width:260px;height:10px;border-radius:5px;overflow:hidden;gap:1px"><i style="flex:${w};background:var(--up)"></i>${SP.draws ? `<i style="flex:${d};background:var(--gold)"></i>` : ""}<i style="flex:${l};background:var(--down)"></i></span>
     <span class="dim" style="display:block;font-size:12px;margin-top:4px">Head-to-head: ${esc(m.a)} ${w} · ${SP.draws ? `draws ${d} · ` : ""}${esc(m.b)} ${l} (${n} meetings)</span>`;
 }
+
+/* Analyst pick from data only (price ignored) */
+function overRate(g, i) { if (!g) return null; const v = g.ov ? g.ov[i] : g[["o45", "o55", "o65"][i]]; return v == null ? null : v; }
+function dataPick(m, A, B, rows) {
+  const opts = [["A", `${m.a} wins`, m.ma], ...(SP.draws ? [["T", "Draw", m.md]] : []), ["B", `${m.b} wins`, m.mb]].sort((x, y) => y[2] - x[2]);
+  const [k, label, p] = opts[0];
+  const hi = SP.draws ? [0.55, 0.45] : [0.65, 0.56];
+  const conf = p >= hi[0] ? ["Strong", "rt-strong"] : p >= hi[1] ? ["Lean", "rt-good"] : ["Toss-up", "rt-mod"];
+  const counted = rows.filter((r) => r.counts);
+  const agree = k === "T" ? null : counted.filter((r) => (k === "A" ? r.aw : r.bw)).length;
+  const why = [];
+  why.push(`Our model: ${esc(label)} ${pct(p)}${opts[1] ? ` (next: ${esc(opts[1][1])} ${pct(opts[1][2])})` : ""}.`);
+  if (agree != null) why.push(`${esc(k === "A" ? m.a : m.b)} is better in ${agree} of ${counted.length} indicators.`);
+  const [hw, hd, hl] = m.h2h, hn = hw + hd + hl;
+  if (hn >= 3) why.push(`Head-to-head ${esc(m.a)} ${hw}${SP.draws ? "-" + hd : ""}-${hl} ${esc(m.b)}.`);
+  const S = k === "A" ? A : k === "B" ? B : null;
+  if (S) why.push(`${esc(S.p.name)}: ${FORM[S.p.form].label.toLowerCase()}, last 24 h ${recTxt(S.d24)}.`);
+  let total = null;
+  const i = 1, ln = SP.lines && SP.lines[i];
+  const oa = overRate(A.g, i), ob = overRate(B.g, i);
+  if (ln != null && oa != null && ob != null) {
+    const po = (oa + ob) / 2, over = po >= 0.5, pp = over ? po : 1 - po;
+    const exp = m.xg ? m.xg[0] + m.xg[1] : null;
+    total = { label: `${over ? "Over" : "Under"} ${ln}`, p: pp, strong: pp >= 0.6 };
+    why.push(`${U().Many}: ${over ? "over" : "under"} ${ln} in ${pct(pp)} of their recent games${exp ? ` · expected total ${exp.toFixed(1)}` : ""}.`);
+  }
+  return { label, p, conf, total, why };
+}
+function dataPickLine(dp) {
+  return `<div class="pv-pick"><span class="dim">Data pick</span> <b>${esc(dp.label)}</b> <span class="rt ${dp.conf[1]}">${dp.conf[0]}</span>${dp.total ? ` <span class="dim">·</span> <b>${esc(dp.total.label)}</b> <span class="dim">${pct(dp.total.p)}</span>` : ""}</div>`;
+}
 function previewCard(m) {
   const A = sideStats(m.a, m.ta, m.start), B = sideStats(m.b, m.tb, m.start);
   if (!A || !B) return "";
@@ -660,6 +691,7 @@ function previewCard(m) {
     <div class="pv-grid">${side(A, m.a, m.ta, m.ma, m.pa.ask)}<div class="pv-vs">vs${SP.draws ? `<small>Draw ${pct(m.md)}<br>K ${cents(m.pt.ask)}</small>` : ""}</div>${side(B, m.b, m.tb, m.mb, m.pb.ask)}</div>
     <div>${h2hBar(m)}</div>
     <div style="font-size:12.5px">${verdict(m, rows)}</div>
+    ${dataPickLine(dataPick(m, A, B, rows))}
     <button class="theme-btn" type="button" data-open-match="${esc(m.id)}">Full comparison →</button>
   </article>`;
 }
@@ -677,6 +709,7 @@ function openMatch(id) {
       <div class="facts"><span>${esc(m.tour)}</span><span>${esc(m.ta)} vs ${esc(m.tb)}</span><span>${new Date(m.start).toLocaleString("en-US", { weekday: "short", hour: "2-digit", minute: "2-digit" })}</span>${kLink(m.id)}</div></div>
       <button class="close" type="button" aria-label="Close">×</button></div>
     <section class="panel"><div class="panel-b" style="font-size:14px">${verdict(m, rows)}</div></section>
+    ${(() => { const dp = dataPick(m, A, B, rows); return `<section class="panel"><div class="panel-h"><h3>Analyst pick from data</h3><span class="sub">Price ignored: what the stats alone favour. Not a value bet unless Kalshi's price is below our %.</span></div><div class="panel-b" style="display:grid;gap:8px">${dataPickLine(dp)}<ul class="why">${dp.why.map((t) => `<li>${t}</li>`).join("")}</ul></div></section>`; })()}
     <section class="panel"><div class="panel-h"><h3>Side by side</h3><span class="sub">Green = better side for that indicator · ${U().many} from ${A.gLbl}</span></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:0">
       <thead><tr><th class="l"></th><th>${esc(m.a)}</th><th>${esc(m.b)}</th></tr></thead><tbody>
       ${rows.map((r) => `<tr style="cursor:default"><td class="l">${r.label}</td><td class="${r.aw ? "pv-win" : ""}">${r.a}</td><td class="${r.bw ? "pv-win" : ""}">${r.b}</td></tr>`).join("")}
