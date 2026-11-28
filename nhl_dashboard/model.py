@@ -15,6 +15,10 @@ import math
 K_SH = 150   # tiros de peso hacia el % de tiro de su posición
 K_SOG = 3    # partidos de peso hacia los tiros/partido de su posición
 K_PTS = 8    # partidos de peso hacia los puntos/partido de su posición
+# Rol del jugador (backtest 2025-26 → probado en 2026-27, mejora el log-loss de goles, puntos y asistencias):
+# minutos de hielo frente a su posición ^ exponente, y puntos en power play por partido.
+# El factor se limita a 0.4–1.3 para no inflar a las estrellas (calibración del tramo 70 %+).
+ROLE = dict(goal=(1.2, 0.5), point=(1.6, 0.0), assist=(2.5, 0.0))
 
 
 def grp(pos):
@@ -28,7 +32,8 @@ def pos_params(per: dict) -> dict:
         n = len(games) or 1
         sog = sum(g["sog"] for g in games)
         out[gk] = dict(sh=(sum(g["g"] for g in games) / sog) if sog else 0.1,
-                       sog=sog / n, pts=sum(g["p"] for g in games) / n, ast=sum(g["a"] for g in games) / n)
+                       sog=sog / n, pts=sum(g["p"] for g in games) / n, ast=sum(g["a"] for g in games) / n,
+                       toi=sum(g.get("toi", 0) for g in games) / n or 15.0, pppg=sum(g.get("ppp", 0) for g in games) / n)
     return out
 
 
@@ -50,6 +55,17 @@ def _mean(xs):
     return sum(xs) / len(xs) if xs else 0.0
 
 
+def role_f(gs: list[dict], pp: dict, kind: str) -> float:
+    """Más minutos y más power play que su posición → más probabilidad (ver ROLE)."""
+    bt, bp = ROLE[kind]
+    if not gs:
+        return 1.0
+    toi = max(_mean([g.get("toi", 0) for g in gs]), 5.0)
+    pppg = _mean([g.get("ppp", 0) for g in gs])
+    f = (toi / pp.get("toi", 15.0)) ** bt * max(0.3, 1 + bp * (pppg - pp.get("pppg", 0.1)))
+    return max(0.4, min(1.3, f))
+
+
 def lambdas(gs: list[dict], pp: dict, prior: list | None, opp_f=1.0, toi_f=1.0):
     n = len(gs)
     sog_tot = sum(g["sog"] for g in gs)
@@ -61,14 +77,15 @@ def lambdas(gs: list[dict], pp: dict, prior: list | None, opp_f=1.0, toi_f=1.0):
     sh = (g_tot + pg + K_SH * pp["sh"]) / (sog_tot + ps + K_SH)
     pts_season = (p_tot + K_PTS * pp["pts"]) / (n + K_PTS)
     pts_rate = 0.6 * pts_season + 0.25 * _mean([g["p"] for g in gs[-10:]] or [pts_season]) + 0.15 * _mean([g["p"] for g in gs[-5:]] or [pts_season])
-    return sog_rate * sh * opp_f * toi_f, pts_rate * opp_f * toi_f, sog_rate * toi_f, sh
+    return (sog_rate * sh * opp_f * toi_f * role_f(gs, pp, "goal"), pts_rate * opp_f * toi_f * role_f(gs, pp, "point"),
+            sog_rate * toi_f, sh)
 
 
 def assist_lambda(gs: list[dict], pp: dict, opp_f=1.0, toi_f=1.0):
     n = len(gs)
     a_season = (sum(g["a"] for g in gs) + K_PTS * pp["ast"]) / (n + K_PTS)
     rate = 0.6 * a_season + 0.25 * _mean([g["a"] for g in gs[-10:]] or [a_season]) + 0.15 * _mean([g["a"] for g in gs[-5:]] or [a_season])
-    return rate * opp_f * toi_f
+    return rate * opp_f * toi_f * role_f(gs, pp, "assist")
 
 
 def prob(lam, c, a=0.0):
@@ -93,7 +110,7 @@ def calibrate(per: dict, pp: dict, priors: dict, min_prior_games=3):
         best = None
         for a100 in range(-8, 17, 2):
             a = a100 / 100
-            for c100 in range(40, 141, 4):
+            for c100 in range(20, 141, 4):
                 c = c100 / 100
                 ll = 0.0
                 for r in rows:
