@@ -1,4 +1,7 @@
-// Radar live proxy (Cloudflare Worker). Read-only. No keys.
+// Radar live proxy (Cloudflare Worker). Read-only for visitors. No keys in the code.
+// Scheduled (cron trigger): asks GitHub to run the data workflow, because GitHub's own
+// schedule often skips hours. Needs the secret GH_TOKEN (fine-grained token, this repo only,
+// permission "Actions: Read and write").
 // /kalshi/<markets|events|series...>?query  -> Kalshi public API
 // /drafted/<slug>?df=...&dt=...             -> Drafted.gg results page
 var ALLOWED_ORIGINS = ["https://kennethtp-maker.github.io", "http://localhost:8765"];
@@ -20,7 +23,23 @@ function reply(text, status, origin) {
   return new Response(text, { status: status, headers: cors(origin) });
 }
 
+var GH_DISPATCH = "https://api.github.com/repos/kennethTP-maker/Condor_bet3.0/actions/workflows/nhl-dashboard.yml/dispatches";
+
 export default {
+  async scheduled(event, env, ctx) {
+    if (!env.GH_TOKEN) return;
+    ctx.waitUntil(fetch(GH_DISPATCH, {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + env.GH_TOKEN,
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "radar-live-cron",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ ref: "main" })
+    }));
+  },
+
   async fetch(request, env, ctx) {
     var url = new URL(request.url);
     var origin = request.headers.get("Origin") || "";
