@@ -1,6 +1,8 @@
 {
-  // Cloudflare Worker: read-only live proxy for the Radar pages (Kalshi + Drafted.gg). No secrets.
+  // Cloudflare Worker: read-only live proxy for the Radar pages (Kalshi + Drafted.gg),
+  // plus a cron that asks GitHub to rebuild the data every 20 minutes (secret GH_TOKEN).
   "name": "radar-live",
   "main": "worker.js",
-  "compatibility_date": "2026-11-01"
+  "compatibility_date": "2026-11-01",
+  "triggers": { "crons": ["*/20 * * * *"] }
 }
