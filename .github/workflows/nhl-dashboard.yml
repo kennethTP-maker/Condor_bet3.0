@@ -3,8 +3,7 @@ name: NHL + eSoccer + eBasketball Radar - actualización
 on:
   schedule:
     - cron: "17 10 * * *"        # 10:17 UTC (05:17 Este de EE. UU.): estadísticas tras terminar todos los partidos
-    - cron: "47 15-23 * * *"     # cada hora de 15:47 a 23:47 UTC: porteros y precios de Kalshi antes y durante los partidos
-    - cron: "47 0-6 * * *"       # cada hora de 00:47 a 06:47 UTC: recoge los partidos que van terminando
+    - cron: "47 * * * *"         # cada hora, todo el día: eSoccer/eBasketball juegan las 24 h; NHL porteros y precios
   workflow_dispatch: {}      # botón "Run workflow" para actualizar a mano
   push:
     branches: [main]
