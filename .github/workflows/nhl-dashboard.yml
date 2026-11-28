@@ -47,8 +47,14 @@ jobs:
             echo "Sin cambios en los datos"
           else
             git commit -m "NHL Radar: datos $(date -u +%Y-%m-%d)"
-            git push
+            # main can move while this runs (merges, another run): rebase keeping the fresh data, retry
+            for i in 1 2 3; do
+              git pull --rebase -X theirs origin main && git push && break
+              git rebase --abort 2>/dev/null || true
+              sleep 5
+            done
           fi
+        continue-on-error: true   # never block the page deploy below
 
       - uses: actions/configure-pages@v5
 
@@ -57,4 +63,12 @@ jobs:
           path: nhl_dashboard/site
 
       - id: deploy
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+
+      - name: Reintentar publicación si GitHub falló
+        if: steps.deploy.outcome == 'failure'
+        run: sleep 30
+
+      - if: steps.deploy.outcome == 'failure'
         uses: actions/deploy-pages@v4
