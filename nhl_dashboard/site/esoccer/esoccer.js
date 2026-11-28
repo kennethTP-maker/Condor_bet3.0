@@ -99,7 +99,7 @@ async function boot() {
   D.players.forEach((p) => (P[p.name] = p));
   if (D.sport) { SP = D.sport; document.title = SP.name; const h = $(".brand h1"); if (h) h.textContent = SP.name; }
   const gen = new Date(D.generatedAt);
-  $("#meta").innerHTML = `<span><span class="live-dot" aria-hidden="true"></span>Updated <b id="gen-at">${gen.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}</b></span>
+  $("#meta").innerHTML = `<span><span class="live-dot" aria-hidden="true"></span>Stats updated <b id="gen-at">${gen.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}</b></span>
     <span>Last result <b>${D.lastMatch ? dtShort(D.lastMatch) : "–"}</b></span>
     <span><a class="nhl-link" href="../">NHL Radar ↗</a></span>
     <span>${SP.key === "ebasketball" ? '<a class="nhl-link" href="../esoccer/">eSoccer Radar ↗</a>' : '<a class="nhl-link" href="../ebasketball/">eBasketball Radar ↗</a>'}</span>

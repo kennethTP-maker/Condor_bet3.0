@@ -146,12 +146,12 @@ async function boot() {
   D.goalies.forEach((g) => (g.kind = "G"));
   loadH2H();
   const gen = new Date(D.generatedAt);
-  const next = new Date(gen.getTime() + 24 * 3600 * 1000);
+  const next = new Date(); next.setUTCMinutes(47, 0, 0); if (next <= new Date()) next.setUTCHours(next.getUTCHours() + 1);   // stats rebuild every hour at :47 UTC (GitHub may start it a few minutes late)
   $("#season-lbl").textContent = `Regular season ${D.seasonLabel}`;
   $("#meta").innerHTML = `
-    <span><span class="live-dot" aria-hidden="true"></span>Updated <b id="gen-at">${gen.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}</b></span>
+    <span><span class="live-dot" aria-hidden="true"></span>Stats updated <b id="gen-at">${gen.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}</b></span>
     <span>Last game <b>${D.lastGameDate ? dShort(D.lastGameDate) : "–"}</b></span>
-    <span>Next update <b>${next.toLocaleString("en-US", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</b></span>
+    <span>Next stats update ~<b>${next.toLocaleString("en-US", { hour: "2-digit", minute: "2-digit" })}</b></span>
     <span><a class="nhl-link" href="esoccer/">eSoccer Radar ↗</a></span>
     <span><a class="nhl-link" href="ebasketball/">eBasketball Radar ↗</a></span>
     <button class="theme-btn" id="theme-btn" type="button">Theme</button>`;
@@ -515,9 +515,14 @@ function viewTeams(app) {
 }
 
 /* ------------------------------------------------------------------ PARTIDOS */
+/* from 3:00 a.m. (viewer's clock) the previous day's games leave the list */
+function localDay(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
+function slateCutoff() { const n = new Date(); if (n.getHours() < 3) n.setDate(n.getDate() - 1); return localDay(n); }
+function gameDay(g) { return g.start ? localDay(new Date(g.start)) : g.date; }
+function isCurrentGame(g) { return gameDay(g) >= slateCutoff() || ["LIVE", "CRIT"].includes(g.state); }
 function viewGames(app) {
-  const byDate = {};
-  D.schedule.forEach((g) => (byDate[g.date] = byDate[g.date] || []).push(g));
+  const byDate = {}, old = [];
+  D.schedule.forEach((g) => (isCurrentGame(g) ? (byDate[g.date] = byDate[g.date] || []).push(g) : old.push(g)));
   const dates = Object.keys(byDate).sort();
   app.innerHTML = `<div class="view">
     <section class="panel"><div class="panel-b" style="font-size:13px;color:var(--fg-2)">
@@ -528,6 +533,8 @@ function viewGames(app) {
     ${kalshiValuePanel()}
     ${dates.length ? dates.map((d) => `<section class="panel"><div class="panel-h"><h2 style="text-transform:capitalize">${dLong(d)}</h2><span class="sub">${byDate[d].length} games</span></div>
       <div class="panel-b"><div class="games">${byDate[d].map(gameCard).join("")}</div></div></section>`).join("") : `<section class="panel"><div class="empty">No games on this week's schedule.</div></section>`}
+    ${old.length ? `<details class="panel"><summary class="panel-h" style="cursor:pointer"><h2>Earlier results</h2><span class="sub">${old.length} games · hidden from 3:00 a.m.</span></summary>
+      <div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:0"><tbody>${old.slice().reverse().map((g) => `<tr style="cursor:default"><td class="l">${dShort(g.date)}</td><td class="l">${esc(g.away)} @ ${esc(g.home)}</td><td>${g.awayScore != null ? `${g.awayScore}–${g.homeScore}` : esc(g.state)}</td><td class="l"><a href="${esc(g.link || "#")}" target="_blank" rel="noopener">NHL.com</a></td></tr>`).join("")}</tbody></table></div></div></details>` : ""}
   </div>`;
   bindOpeners(app);
   app.querySelectorAll("[data-vsgame]").forEach((el) => el.addEventListener("click", () => { vs.game = +el.dataset.vsgame; vs.gA = vs.gH = null; }));
