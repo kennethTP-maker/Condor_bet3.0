@@ -137,3 +137,42 @@ def calibrate(per: dict, pp: dict, priors: dict, min_prior_games=3):
                 point=table(1, 3, cp, [0, .2, .3, .4, .5, .6, .7, .8, 1.01], ap),
                 assist=table(4, 5, ca, [0, .1, .2, .3, .4, .5, .6, 1.01], aa),
                 brierGoal=brier(0, 2, cg, ag), brierPoint=brier(1, 3, cp, ap), brierAssist=brier(4, 5, ca, aa))
+
+
+def data_pick_record(per: dict, pp: dict, priors: dict, cal: dict, days: int = 7):
+    """Games-tab style picks replayed without looking ahead: for each team in each game of the last
+    `days` game days, the top candidates by P(point) and P(goal) using only earlier games."""
+    dates = sorted({g["date"] for p in per.values() for g in p["games"]})
+    keep = set(dates[-days:])
+    last_day = dates[-1] if dates else None
+    by = {}
+    for pid, p in per.items():
+        gs = p["games"]
+        par = pp[grp(p["pos"])]
+        for i in range(8, len(gs)):
+            g = gs[i]
+            if g["date"] not in keep:
+                continue
+            lg, lp, _, _ = lambdas(gs[:i], par, priors.get(pid))
+            by.setdefault((g["gid"], g["team"]), []).append(dict(
+                name=p["name"], date=g["date"], game=f'{g["team"]} vs {g["opp"]}',
+                pp=prob(lp, cal["cp"], cal["ap"]), pg=prob(lg, cal["cg"], cal["ag"]), yp=g["p"] > 0, yg=g["g"] > 0))
+    out = {"pt1": [], "pt2": [], "g1": [], "any2": []}
+    recent = []
+    for (gid, team), cands in by.items():
+        if len(cands) < 6:
+            continue
+        sp = sorted(cands, key=lambda c: -c["pp"])
+        sg = sorted(cands, key=lambda c: -c["pg"])
+        out["pt1"].append((sp[0]["date"], sp[0]["yp"]))
+        out["pt2"] += [(c["date"], c["yp"]) for c in sp[:2]]
+        out["any2"].append((sp[0]["date"], sp[0]["yp"] or sp[1]["yp"]))
+        out["g1"].append((sg[0]["date"], sg[0]["yg"]))
+        recent.append(dict(date=sp[0]["date"], game=sp[0]["game"], point=sp[0]["name"], pPoint=round(sp[0]["pp"], 3), pointHit=sp[0]["yp"],
+                           goal=sg[0]["name"], pGoal=round(sg[0]["pg"], 3), goalHit=sg[0]["yg"]))
+
+    def agg(xs, day=None):
+        xs = [x for d, x in xs if day is None or d == day]
+        return [len(xs), round(sum(xs) / len(xs), 4) if xs else None]
+    res = {k: dict(day=agg(v, last_day), week=agg(v)) for k, v in out.items()}
+    return dict(lastDay=last_day, days=days, **res, recent=sorted(recent, key=lambda r: r["date"], reverse=True)[:40])

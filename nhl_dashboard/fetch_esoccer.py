@@ -332,6 +332,80 @@ def agreement_backtest(matches, params):
     out["signals"] = {k: [v[0], round(v[1] / v[0], 4)] for k, v in sig.items() if v[0] >= 100}
     return out
 
+def data_pick_record(matches, params, now, days=7):
+    """Replay the Matches-tab data pick (no prices): winner = most likely outcome, total = over/under the
+    middle line from both players' recent scored games. Only information known before kick-off."""
+    import bisect
+    R = defaultdict(lambda: 1500.0)
+    n = defaultdict(int)
+    H = defaultdict(lambda: [0, 0, 0])
+    tots = defaultdict(list)   # player -> totals of his recent scored matches
+    hist = defaultdict(lambda: ([], []))
+    ex = defaultdict(list)
+    since = (now - timedelta(days=days)).isoformat()[:16]
+    d1 = (now - timedelta(days=1)).isoformat()[:16]
+    hi = (0.55, 0.45) if params["d0"] > 0 else (0.65, 0.56)
+    line = LINES[1]
+    sig_ok = {k for k, v in (params.get("agree") or {}).get("signals", {}).items() if v[1] and v[1] >= 0.7}
+    rows = []
+
+    def form(pl, t):
+        ts, rs = hist[pl]
+        t7 = (datetime.fromisoformat(t.replace("Z", "")) - timedelta(days=7)).isoformat()[:16]
+        i = bisect.bisect_right(ts, t7)
+        e = ex[pl][-10:]
+        return form_label(R[pl] - (rs[i - 1] if i else 1500.0), sum(e) / len(e) if e else 0)[0]
+
+    for m in matches:
+        a, b, res = m["a"], m["b"], m["res"]
+        key = (a, b) if a < b else (b, a)
+        h = H[key]
+        rec = h if key[0] == a else [h[2], h[1], h[0]]
+        pa, pd, pb = blend_pair(*probs(R[a], R[b], params["d0"], params["w"]), rec)
+        if m["start"] >= since and n[a] >= 10 and n[b] >= 10:
+            k, p = max((("A", pa), ("T", pd), ("B", pb)), key=lambda x: x[1])
+            conf = "Strong" if p >= hi[0] else "Lean" if p >= hi[1] else "Toss-up"
+            fire = False
+            if k != "T":
+                hn = sum(rec)
+                fire = any(x in sig_ok for x in signal_hits(p, abs(R[a] - R[b]), (R[a] >= R[b]) == (k == "A"), hn,
+                                                           ((rec[0] if k == "A" else rec[2]) / hn) if hn else 0, False,
+                                                           form(a if k == "A" else b, m["start"]), form(b if k == "A" else a, m["start"])))
+            ta, tb = tots[a][-20:], tots[b][-20:]
+            tot_pick = tot_hit = None
+            if len(ta) >= 5 and len(tb) >= 5:
+                po = (sum(1 for t in ta if t > line) / len(ta) + sum(1 for t in tb if t > line) / len(tb)) / 2
+                tot_pick = "O" if po >= 0.5 else "U"
+                if m.get("score"):
+                    tot_hit = (sum(m["score"]) > line) == (tot_pick == "O")
+            rows.append(dict(start=m["start"], game=f"{a} vs {b}", pick=("Draw" if k == "T" else (a if k == "A" else b)),
+                             p=round(p, 3), conf=conf, fire=fire, won=res == k,
+                             total=(f"{'Over' if tot_pick == 'O' else 'Under'} {line}" if tot_pick else None), totalHit=tot_hit,
+                             score=m.get("score")))
+        s = {"A": 1.0, "T": 0.5, "B": 0.0}[res]
+        e = expected(R[a], R[b])
+        for pl, d in ((a, s - e), (b, e - s)):
+            R[pl] += params["K"] * (1.6 if n[pl] < 20 else 1.0) * d
+            n[pl] += 1
+            ex[pl].append(d)
+            hist[pl][0].append(m["start"])
+            hist[pl][1].append(R[pl])
+        if m.get("score"):
+            tots[a].append(sum(m["score"]))
+            tots[b].append(sum(m["score"]))
+        h[{"A": 0, "T": 1, "B": 2}[res] if key[0] == a else {"A": 2, "T": 1, "B": 0}[res]] += 1
+
+    def agg(rs, k="won"):
+        rs = [r for r in rs if r.get(k) is not None]
+        return [len(rs), round(sum(1 for r in rs if r[k]) / len(rs), 4) if rs else None]
+    last = [r for r in rows if r["start"] >= d1]
+    return dict(days=days, line=line,
+                d1=dict(win=agg(last), total=agg(last, "totalHit"), fire=agg([r for r in last if r["fire"]])),
+                d7=dict(win=agg(rows), total=agg(rows, "totalHit"), fire=agg([r for r in rows if r["fire"]]),
+                        byConf={c: agg([r for r in rows if r["conf"] == c]) for c in ("Strong", "Lean", "Toss-up")}),
+                recent=rows[-40:][::-1])
+
+
 def calibration(rows):
     def table(idx, outcome, edges):
         out = []
@@ -462,6 +536,7 @@ def main():
         tots = sorted(m["score"][0] + m["score"][1] for m in done if m.get("score"))
         med = tots[len(tots) // 2] if tots else 150
         LINES = [med - 10.5, med - 0.5, med + 9.5]
+    params["dataPicks"] = data_pick_record(done, params, datetime.now(timezone.utc))
     P = defaultdict(lambda: dict(w=0, d=0, l=0, gp=0, res=[], teams=defaultdict(lambda: [0, 0, 0]), tours=set(),
                                  hours=defaultdict(lambda: [0, 0, 0]), exp=[], goals=[]))
     h2h = defaultdict(lambda: [0, 0, 0])  # (a,b) -> wins a, draws, wins b
@@ -566,9 +641,18 @@ def main():
         pa, pd, pb = blend_pair(*probs(R[m["a"]], R[m["b"]], params["d0"], params["w"]), rec)
         ga_, gb_ = (pl_goals.get(m["a"]) or {}).get("all"), (pl_goals.get(m["b"]) or {}).get("all")
         xg = [round((ga_["gf"] + gb_["ga"]) / 2, 2), round((gb_["gf"] + ga_["ga"]) / 2, 2)] if ga_ and gb_ else None
+        # 🔥 signals (same rules as the page) that historically win 70%+
+        sig_ok = {k for k, v in (params.get("agree") or {}).get("signals", {}).items() if v[1] and v[1] >= 0.7}
+        pick_a = pa >= pb
+        pf = {p["name"]: p["form"] for p in players}
+        hn = sum(rec)
+        hits = [x for x in signal_hits(max(pa, pb), abs(R[m["a"]] - R[m["b"]]), (R[m["a"]] >= R[m["b"]]) == pick_a, hn,
+                                       ((rec[0] if pick_a else rec[2]) / hn) if hn else 0,
+                                       False, pf.get(m["a"] if pick_a else m["b"]), pf.get(m["b"] if pick_a else m["a"])) if x in sig_ok]
+        fire = (["A"] if pick_a else ["B"]) if hits else []
         up.append(dict(**{k: m[k] for k in ("id", "tour", "start", "a", "b", "ta", "tb", "pa", "pb", "pt")},
                        ma=round(pa, 4), md=round(pd, 4), mb=round(pb, 4), h2h=rec, xg=xg,
-                       ea=round(R[m["a"]], 1), eb=round(R[m["b"]], 1)))
+                       ea=round(R[m["a"]], 1), eb=round(R[m["b"]], 1), fire=fire))
 
     recent = [dict(**{k: m[k] for k in ("id", "tour", "start", "a", "b", "ta", "tb", "res")}, score=m.get("score"), h1=m.get("h1")) for m in done[-300:]]
     # ---- matches that started in the last 35 min and are already settled:

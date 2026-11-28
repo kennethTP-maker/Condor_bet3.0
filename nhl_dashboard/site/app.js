@@ -520,6 +520,16 @@ function localDay(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).pad
 function slateCutoff() { const n = new Date(); if (n.getHours() < 3) n.setDate(n.getDate() - 1); return localDay(n); }
 function gameDay(g) { return g.start ? localDay(new Date(g.start)) : g.date; }
 function isCurrentGame(g) { return gameDay(g) >= slateCutoff() || ["LIVE", "CRIT"].includes(g.state); }
+function gamesRecordPanel() {
+  const dp = D.model && D.model.dataPicks;
+  if (!dp) return "";
+  const c = (x) => (x && x[0] ? `<b>${pct(x[1])}</b> <span class="dim">(${Math.round(x[0] * x[1])}/${x[0]})</span>` : "–");
+  const row = (lbl, k) => `<tr style="cursor:default"><td class="l">${lbl}</td><td>${c(dp[k].day)}</td><td>${c(dp[k].week)}</td></tr>`;
+  return `<section class="panel"><div class="panel-h"><h2>How these picks did</h2><span class="sub">Each team's top candidates in recent games, replayed with only earlier games (no prices, no goalie factor)</span></div>
+    <div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:0"><thead><tr><th class="l"></th><th>Last game day (${dShort(dp.lastDay)})</th><th>Last ${dp.days} game days</th></tr></thead><tbody>
+    ${row("#1 P point per team: got a point", "pt1")}${row("Top 2 P point: each got a point", "pt2")}${row("Top 2 P point: at least one did", "any2")}${row("#1 P goal per team: scored", "g1")}
+    </tbody></table></div></div></section>`;
+}
 function viewGames(app) {
   const byDate = {}, old = [];
   D.schedule.forEach((g) => (isCurrentGame(g) ? (byDate[g.date] = byDate[g.date] || []).push(g) : old.push(g)));
@@ -530,6 +540,7 @@ function viewGames(app) {
       The probable goalie comes from Kalshi once it lists its saves markets; otherwise from the starter rotation over the last 10 games (if the team played the day before, the backup is used).
       Next to each probability is the Kalshi Yes price when the market is open (Kalshi opens player markets on game day). An orange ● price means the game was already in progress.
       These are statistical estimates, not certainties.</div></section>
+    ${gamesRecordPanel()}
     ${kalshiValuePanel()}
     ${dates.length ? dates.map((d) => `<section class="panel"><div class="panel-h"><h2 style="text-transform:capitalize">${dLong(d)}</h2><span class="sub">${byDate[d].length} games</span></div>
       <div class="panel-b"><div class="games">${byDate[d].map(gameCard).join("")}</div></div></section>`).join("") : `<section class="panel"><div class="empty">No games on this week's schedule.</div></section>`}
@@ -1156,6 +1167,7 @@ function slateDates() {
 }
 
 /* evalúa un jugador en un partido: mejor mercado, puntuación y razones */
+const kfee = (p) => Math.ceil(0.07 * p * (1 - p) * 100 - 1e-9) / 100;
 function analyzePlayer(s, g, opp) {
   const gk = probableGoalie(opp, g);
   const m = H && !H.error && gk ? matchup(s, gk.id) : { s, ...projFor(s, opp), sog: 0 };
@@ -1168,8 +1180,8 @@ function analyzePlayer(s, g, opp) {
     if (p == null || p < mk.floor) continue;
     const km = sameGame ? kMarket(s.id, mk.k, 1) : null;
     const ask = km && km.ask ? km.ask : null;
-    const edge = ask != null ? p - ask : null;
-    if (ask != null && edge < 0.02) continue;          // con precio: solo si hay valor
+    const edge = ask != null ? p - ask - kfee(ask) : null;   // ventaja neta tras la comisión de Kalshi
+    if (ask != null && edge < 0.03) continue;          // con precio: solo si hay valor neto de 3+ pts
     let score = ask != null ? edge * 100 + p * 8 : Math.min(8, (p - mk.base) * 25);
     score += formBonus;
     if (m.conf === "high" && m.pairG > 1.1 && id === "goal") score += 2;
@@ -1183,7 +1195,7 @@ function analyzePlayer(s, g, opp) {
 
 function reasonsFor(s, m, gk, b) {
   const r = [];
-  if (b.ask != null) r.push(`<b>Value:</b> our ${pct(b.p)} vs ${cents(b.ask)} on Kalshi (${b.edge >= 0 ? "+" : ""}${Math.round(b.edge * 100)} pts).`);
+  if (b.ask != null) r.push(`<b>Value:</b> our ${pct(b.p)} vs ${cents(b.ask)} on Kalshi (${b.edge >= 0 ? "+" : ""}${Math.round(b.edge * 100)} pts after the ${cents(kfee(b.ask))} fee).`);
   else r.push(`<b>Probability:</b> ${pct(b.p)} for ${b.mk.long.toLowerCase()} (no Kalshi price for this player yet).`);
   if (s.form === "hot") r.push(`🔥 Hot${s.pStreak >= 3 ? `: ${s.pStreak}-game point streak` : ""} · L5 ${s.l5.g}G ${s.l5.a}A.`);
   else if (s.form === "up") r.push(`▲ Improving: playing above his average (L5 ${s.l5.g}G ${s.l5.a}A).`);
@@ -1250,7 +1262,7 @@ function viewAnalyst(app) {
     <section class="panel"><div class="panel-b" style="display:grid;gap:10px">
       <div style="font-size:13px;color:var(--fg-2)">The analyst reviews every player on each team and picks <b>1 or 2 candidates</b> with their best market (goal, point or assist). It uses our calibrated probability against the probable goalie, form, history against that goalie, ice time and, when available, the Kalshi price: with a price it only recommends when our probability beats the market by 2+ points. Players who missed their team's last game are excluded.</div>
       <div class="seg" id="ana-date">${dates.map((d) => `<button type="button" data-d="${d}" aria-pressed="${d === ana.date}">${dShort(d)}</button>`).join("")}</div>
-      <div class="legend"><span class="rt rt-strong">Strong</span> +6 pts or more over Kalshi <span class="rt rt-good">Good</span> +3.5 to +6 <span class="rt rt-mod">Moderate</span> +2 to +3.5 · without a Kalshi price, "Good" at most, based on probability and form</div>
+      <div class="legend"><span class="rt rt-strong">Strong</span> +6 pts or more over Kalshi <span class="rt rt-good">Good</span> +3.5 to +6 <span class="rt rt-mod">Moderate</span> +3 to +3.5 · edges are <b>after Kalshi's fee</b> · without a Kalshi price, "Good" at most, based on probability and form</div>
     </div></section>
     ${top.length ? `<section class="panel"><div class="panel-h"><h2>Top 5 of the day</h2><span class="sub">${dLong(ana.date)} · ${games.length} games still to start</span></div>
       <div class="panel-b"><div class="ana-top">${top.map(pickCard).join("")}</div></div></section>` : ""}
