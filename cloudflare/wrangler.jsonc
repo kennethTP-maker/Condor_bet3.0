@@ -1,8 +1,10 @@
 {
   // Cloudflare Worker: read-only live proxy for the Radar pages (Kalshi + Drafted.gg),
   // plus a cron that asks GitHub to rebuild the data every 20 minutes (secret GH_TOKEN).
+  // STATUS (KV) keeps the outcome of the last cron call for troubleshooting.
   "name": "radar-live",
   "main": "worker.js",
-  "compatibility_date": "2026-11-01",
-  "triggers": { "crons": ["*/20 * * * *"] }
+  "compatibility_date": "2026-11-27",
+  "triggers": { "crons": ["*/20 * * * *"] },
+  "kv_namespaces": [{ "binding": "STATUS", "id": "dc89756cb8304a939d70f59eff791153" }]
 }

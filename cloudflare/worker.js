@@ -1,7 +1,7 @@
 // Radar live proxy (Cloudflare Worker). Read-only for visitors. No keys in the code.
 // Scheduled (cron trigger): asks GitHub to run the data workflow, because GitHub's own
 // schedule often skips hours. Needs the secret GH_TOKEN (fine-grained token, this repo only,
-// permission "Actions: Read and write").
+// permission "Contents: Read and write").
 // /kalshi/<markets|events|series...>?query  -> Kalshi public API
 // /drafted/<slug>?df=...&dt=...             -> Drafted.gg results page
 var ALLOWED_ORIGINS = ["https://kennethtp-maker.github.io", "http://localhost:8765"];
@@ -23,21 +23,38 @@ function reply(text, status, origin) {
   return new Response(text, { status: status, headers: cors(origin) });
 }
 
-var GH_DISPATCH = "https://api.github.com/repos/kennethTP-maker/Condor_bet3.0/actions/workflows/nhl-dashboard.yml/dispatches";
+// repository_dispatch: a fine-grained token only needs "Contents: Read and write" on this repo
+var GH_DISPATCH = "https://api.github.com/repos/kennethTP-maker/Condor_bet3.0/dispatches";
+
+// Ask GitHub to run the data workflow; keep the outcome in KV (STATUS) for troubleshooting.
+async function dispatch(env) {
+  var note = { at: new Date().toISOString(), status: 0, body: "" };
+  if (!env.GH_TOKEN) {
+    note.body = "GH_TOKEN missing";
+  } else {
+    try {
+      var r = await fetch(GH_DISPATCH, {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer " + String(env.GH_TOKEN).trim(),
+          "Accept": "application/vnd.github+json",
+          "User-Agent": "radar-live-cron",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ event_type: "radar-refresh" })
+      });
+      note.status = r.status;
+      note.body = (await r.text()).slice(0, 300);
+    } catch (e) {
+      note.body = "fetch error: " + String(e);
+    }
+  }
+  if (env.STATUS) await env.STATUS.put("last-cron", JSON.stringify(note));
+}
 
 export default {
   async scheduled(event, env, ctx) {
-    if (!env.GH_TOKEN) return;
-    ctx.waitUntil(fetch(GH_DISPATCH, {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + env.GH_TOKEN,
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "radar-live-cron",
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ ref: "main" })
-    }));
+    ctx.waitUntil(dispatch(env));
   },
 
   async fetch(request, env, ctx) {
