@@ -124,20 +124,27 @@ function route() {
 }
 
 /* ---------------- analyst core */
+const MIN_NET = 0.03, MIN_NET_DRAW = 0.06;
+const kfee = (p) => Math.ceil(0.07 * p * (1 - p) * 100 - 1e-9) / 100;
 function analyze(m) {
   const opts = [
     ["A", `${m.a} wins`, m.ma, m.pa.ask],
     ...(SP.draws ? [["T", "Draw", m.md, m.pt.ask]] : []),
     ["B", `${m.b} wins`, m.mb, m.pb.ask],
-  ].map(([k, label, p, ask]) => ({ k, label, p, ask, edge: ask != null && ask > 0 && ask < 1 ? p - ask : null }));
-  const best = opts.filter((o) => o.edge != null).sort((x, y) => y.edge - x.edge)[0] || null;
+  ].map(([k, label, p, ask]) => ({ k, label, p, ask, edge: ask != null && ask > 0 && ask < 1 ? p - ask - kfee(ask) : null }));
+  const fire = fireSignals(m).length ? (m.ma >= m.mb ? "A" : "B") : null;
+  // net edge after Kalshi's fee; draws need a bigger edge; a 🔥 side goes first
+  const ok = opts.filter((o) => o.edge != null && o.edge >= (o.k === "T" ? MIN_NET_DRAW : MIN_NET));
+  const best = ok.sort((x, y) => (y.k === fire) - (x.k === fire) || y.edge - x.edge)[0] || null;
+  if (best) best.fire = best.k === fire;
   return { opts, best };
 }
 function rating(edge) { return edge >= 0.06 ? ["Strong", "rt-strong"] : edge >= 0.035 ? ["Good", "rt-good"] : ["Moderate", "rt-mod"]; }
 function reasons(m, pick) {
   const A = P[m.a], B = P[m.b];
   const r = [];
-  r.push(`<b>Value:</b> our ${pct(pick.p)} vs ${cents(pick.ask)} on Kalshi (${sgn(Math.round(pick.edge * 100))} pts).`);
+  r.push(`<b>Value:</b> our ${pct(pick.p)} vs ${cents(pick.ask)} on Kalshi (${sgn(Math.round(pick.edge * 100))} pts after the ${cents(kfee(pick.ask))} fee).`);
+  if (pick.fire) r.push(`🔥 This side meets a signal that historically wins 70%+.`);
   if (A && B) r.push(`Elo ${m.a} ${Math.round(m.ea)} vs ${m.b} ${Math.round(m.eb)} (${sgn(Math.round(m.ea - m.eb))}).`);
   const [hw, hd, hl] = m.h2h; const hn = hw + hd + hl;
   if (hn) r.push(`Head-to-head: ${m.a} ${hw}W ${SP.draws ? hd + "D " : ""}${hl}L in ${hn} meetings.`);
@@ -154,11 +161,11 @@ function matchCard(m, withReasons = true) {
   const { opts, best } = analyze(m);
   const mins = minsTo(m.start);
   const when = mins > 0 ? `in ${mins} min · ${tShort(m.start)}` : `started ${-mins} min ago`;
-  const show = best && best.edge >= 0.02;
+  const show = !!best;
   const [rl, rc] = show ? rating(best.edge) : ["", ""];
   return `<article class="pickc">
     <div class="pickc-h">${av(m.a)}<div style="min-width:0"><div class="nm"><span data-pl="${esc(m.a)}" style="cursor:pointer">${esc(m.a)}</span>&nbsp;<span class="dim">vs</span>&nbsp;<span data-pl="${esc(m.b)}" style="cursor:pointer">${esc(m.b)}</span> ${kLink(m.id)}</div>
-      <div class="dim" style="font-size:12px">${esc(m.tour)} · ${esc(m.ta)} vs ${esc(m.tb)} · ${when}${m.xg ? ` · exp. score ${m.xg[0].toFixed(1)}–${m.xg[1].toFixed(1)}` : ""}</div></div>${show ? `<span class="rt ${rc}">${rl}</span>` : ""}</div>
+      <div class="dim" style="font-size:12px">${esc(m.tour)} · ${esc(m.ta)} vs ${esc(m.tb)} · ${when}${m.xg ? ` · exp. score ${m.xg[0].toFixed(1)}–${m.xg[1].toFixed(1)}` : ""}</div></div>${show ? `<span class="rt ${rc}">${best.fire ? "🔥 " : ""}${rl}</span>` : ""}</div>
     <div class="tbl-wrap"><table class="tbl" style="min-width:0"><thead><tr><th class="l">Outcome</th><th>Ours</th><th>Kalshi</th><th>Edge</th></tr></thead><tbody>
       ${opts.map((o) => `<tr style="cursor:default${show && o.k === best.k ? ";font-weight:700" : ""}"><td class="l">${esc(o.label)}</td><td class="pct">${pct(o.p)}</td><td>${cents(o.ask)}</td><td>${edgeCell(o.p, o.ask)}</td></tr>`).join("")}</tbody></table></div>
     ${show && withReasons ? `<div class="pickc-m"><span class="mk mk-point">Pick: ${esc(best.label)}</span></div><ul class="why">${reasons(m, best).map((t) => `<li>${t}</li>`).join("")}</ul>` : show ? "" : `<div class="dim" style="font-size:12px">No value: Kalshi prices are at or above our probabilities.</div>`}
@@ -171,7 +178,7 @@ function viewSummary(app) {
   const pl = D.players.filter((p) => p.gp >= st.minGames && inTour(p));
   const counts = { hot: 0, up: 0, flat: 0, down: 0, cold: 0 }; pl.forEach((p) => counts[p.form]++);
   const lists = ["hot", "cold"].map((f) => [f, pl.filter((p) => p.form === f).sort((a, b) => (f === "hot" ? b.trend - a.trend : a.trend - b.trend)).slice(0, 8)]);
-  const val = upcomingOpen().map((m) => ({ m, a: analyze(m) })).filter((x) => x.a.best && x.a.best.edge >= 0.02).sort((x, y) => y.a.best.edge - x.a.best.edge).slice(0, 4);
+  const val = upcomingOpen().map((m) => ({ m, a: analyze(m) })).filter((x) => x.a.best).sort((x, y) => y.a.best.fire - x.a.best.fire || y.a.best.edge - x.a.best.edge).slice(0, 4);
   app.innerHTML = `<div class="view">
     <div>${tourSeg("tour-seg")}</div>
     <section class="kpis">
@@ -206,12 +213,12 @@ function viewSummary(app) {
 function viewAnalyst(app) {
   const ups = upcomingOpen();
   const analyzed = ups.map((m) => ({ m, a: analyze(m) }));
-  const withVal = analyzed.filter((x) => x.a.best && x.a.best.edge >= 0.02).sort((x, y) => y.a.best.edge - x.a.best.edge);
+  const withVal = analyzed.filter((x) => x.a.best).sort((x, y) => y.a.best.fire - x.a.best.fire || y.a.best.edge - x.a.best.edge);
   app.innerHTML = `<div class="view">
     <section class="panel"><div class="panel-b" style="display:grid;gap:10px">
-      <div style="font-size:13px;color:var(--fg-2)">For each upcoming match the analyst compares our ${SP.draws ? "win / draw / loss" : "win / loss"} probabilities with the Kalshi Yes prices and picks the outcome with the biggest edge (only if it beats the price by 2+ points). Prices are a snapshot from the last update; matches start every few minutes, so always open <b>Kalshi</b> for the live price.</div>
+      <div style="font-size:13px;color:var(--fg-2)">For each upcoming match the analyst compares our ${SP.draws ? "win / draw / loss" : "win / loss"} probabilities with the Kalshi Yes prices and picks the outcome with the biggest edge (only if it beats the price by 3+ points after Kalshi's fee; draws need 6+; a 🔥 side goes first). Prices are a snapshot from the last update; matches start every few minutes, so always open <b>Kalshi</b> for the live price.</div>
       ${tourSeg("tour-seg")}
-      <div class="legend"><span class="rt rt-strong">Strong</span> +6 pts or more <span class="rt rt-good">Good</span> +3.5 to +6 <span class="rt rt-mod">Moderate</span> +2 to +3.5</div>
+      <div class="legend"><span class="rt rt-strong">Strong</span> +6 pts or more <span class="rt rt-good">Good</span> +3.5 to +6 <span class="rt rt-mod">Moderate</span> +3 to +3.5 · edges are <b>after Kalshi's fee</b></div>
     </div></section>
     <section class="panel"><div class="panel-h"><h2>Value picks</h2><span class="sub">${withVal.length} of ${ups.length} upcoming matches</span></div>
       <div class="panel-b"><div class="ana-top">${withVal.map((x) => matchCard(x.m)).join("") || `<div class="empty">No value picks among the upcoming matches. Ask for an update closer to the next matches.</div>`}</div></div></section>
@@ -222,6 +229,17 @@ function viewAnalyst(app) {
   bindTour("tour-seg");
 }
 
+function dataRecordPanel() {
+  const dp = D.model && D.model.dataPicks;
+  if (!dp) return "";
+  const c = (x) => (x && x[0] ? `<b>${pct(x[1])}</b> <span class="dim">(${Math.round(x[0] * x[1])}/${x[0]})</span>` : "–");
+  const row = (lbl, a, b) => `<tr style="cursor:default"><td class="l">${lbl}</td><td>${c(a)}</td><td>${c(b)}</td></tr>`;
+  return `<section class="panel"><div class="panel-h"><h2>Data pick record</h2><span class="sub">How the "Data pick" on each card did (no prices, no Analyst) · replayed with only pre-match information</span></div>
+    <div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:0"><thead><tr><th class="l"></th><th>Last 24 h</th><th>Last ${dp.days} days</th></tr></thead><tbody>
+    ${row("Winner pick", dp.d1.win, dp.d7.win)}${row(`${U().Many} pick (over/under ${dp.line})`, dp.d1.total, dp.d7.total)}${row("🔥 winner picks", dp.d1.fire, dp.d7.fire)}
+    ${["Strong", "Lean", "Toss-up"].map((k) => row(`Winner · ${k}`, null, dp.d7.byConf[k])).join("")}
+    </tbody></table></div>${SP.draws ? `<div class="dim" style="font-size:12px;margin-top:6px">A draw counts as a miss for a winner pick.</div>` : ""}</div></section>`;
+}
 function viewMatches(app) {
   const ups = D.upcoming.filter(mInTour);
   const rec = D.recent.filter(mInTour).slice(-80).reverse();
@@ -229,6 +247,7 @@ function viewMatches(app) {
   const pv = pvList().slice(0, 30);
   app.innerHTML = `<div class="view">
     <div>${tourSeg("tour-seg")}</div>
+    ${dataRecordPanel()}
     <section class="panel"><div class="panel-h"><h2>Match previews</h2><span class="sub">Who is stronger in each match · started matches stay 30 min with the result and whether the data pick hit · tap "Full comparison" for every stat</span></div>
       <div class="panel-b"><div class="ana-top">${pv.map((x) => previewCard(x.m, x.dp, x.pre)).join("") || `<div class="empty">No upcoming matches listed right now.</div>`}</div></div></section>
     <section class="panel"><div class="panel-h"><h2>Upcoming</h2><span class="sub">Ours vs Kalshi Yes price · ${SP.draws ? "A / Draw / B" : "A / B"}</span></div><div class="panel-b"><div class="tbl-wrap"><table class="tbl" style="min-width:900px">
@@ -312,7 +331,7 @@ function viewMethod(app) {
     <h3>Form</h3>
     <p>Combines the Elo change over 7 days with results above or below expectation in the last 10 matches. ${chip("hot")} strong rise, ${chip("up")} rising, ${chip("flat")} steady, ${chip("down")} falling, ${chip("cold")} sharp drop.</p>
     <h3>Analyst and edge</h3>
-    <p><b>Edge</b> = our probability − the Kalshi Yes price. The analyst picks the outcome with the largest edge if it is at least +2 points: Strong +6 or more, Good +3.5 to +6, Moderate +2 to +3.5. It excludes fees and anything the price already knows.</p>
+    <p><b>Edge</b> = our probability − the Kalshi Yes price. The analyst picks the outcome with the largest edge after Kalshi's fee if it is at least +3 points (draws +6; a side with a 🔥 signal goes first): Strong +6 or more, Good +3.5 to +6, Moderate +3 to +3.5.</p>
     <h3>How accurate is it? (backtest)</h3>
     <p>Each match was predicted using only the matches before it (${c.n.toLocaleString("en-US")} predictions, players with 10+ prior matches). Multiclass Brier score: ${c.brier} (lower is better; always guessing the average rates scores ${c.brierBase ?? "–"}). Log-loss: ${M.logloss}.</p>
     ${tb(c.win, "Player A wins")}${SP.draws && c.draw.length ? tb(c.draw, "Draw") : ""}

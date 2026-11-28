@@ -556,7 +556,7 @@ def main():
         goalies=sorted(goalies, key=lambda g: -(g["power"] or -1)),
         reserves=reserves,
         kalshi=kal,
-        model=dict(calibration=calib, pos={k: {kk: r2(vv, 4) for kk, vv in v.items()} for k, v in pp.items()}),
+        model=dict(calibration=calib, dataPicks=model.data_pick_record(per, pp, priors, calib), pos={k: {kk: r2(vv, 4) for kk, vv in v.items()} for k, v in pp.items()}),
         sources=[f"{WEB}/standings/now", f"{WEB}/roster/{{TEAM}}/current", f"{WEB}/schedule/now",
                  f"{STATS}/skater/summary", f"{STATS}/skater/realtime", f"{STATS}/goalie/summary"],
     )

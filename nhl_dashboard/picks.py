@@ -21,6 +21,14 @@ from pathlib import Path
 CACHE = Path(__file__).parent / "cache"
 
 
+MIN_NET = 0.03        # minimum edge after Kalshi's fee for any pick
+MIN_NET_DRAW = 0.06   # eSoccer draws: only with a big edge (0 of 9 in the first day at +2-4 pts)
+
+
+def net_edge(p, ask):
+    return p - ask - fee(ask)
+
+
 def rating(edge):
     return "Strong" if edge >= 0.06 else "Good" if edge >= 0.035 else "Moderate"
 
@@ -89,13 +97,15 @@ def esports(sport, upcoming, done, now):
         opts = [("A", m["a"] + " wins", m["ma"], m["pa"]["ask"]), ("B", m["b"] + " wins", m["mb"], m["pb"]["ask"])]
         if m.get("pt") and m["pt"].get("ask") is not None and m["md"]:
             opts.append(("T", "Draw", m["md"], m["pt"]["ask"]))
-        opts = [(k, lbl, p, a, p - a) for k, lbl, p, a in opts if a and 0 < a < 1]
+        opts = [(k, lbl, p, a, net_edge(p, a)) for k, lbl, p, a in opts if a and 0 < a < 1]
+        opts = [o for o in opts if o[4] >= (MIN_NET_DRAW if o[0] == "T" else MIN_NET)]
         if not opts:
             continue
-        k, lbl, p, a, e = max(opts, key=lambda o: o[4])
-        if e >= 0.02:
-            add(store, m["id"], at=now.isoformat(timespec="minutes"), start=m["start"], game=f'{m["a"]} vs {m["b"]}',
-                label=lbl, market=k if k == "T" else "Win", side=k, p=round(p, 4), ask=a, edge=round(e, 4))
+        fire = set(m.get("fire") or [])
+        # a pick with a 70%+ historical signal (🔥) goes first, then the larger edge
+        k, lbl, p, a, e = max(opts, key=lambda o: (o[0] in fire, o[4]))
+        add(store, m["id"], at=now.isoformat(timespec="minutes"), start=m["start"], game=f'{m["a"]} vs {m["b"]}',
+            label=lbl, market=k if k == "T" else "Win", side=k, p=round(p, 4), ask=a, edge=round(e, 4), fire=k in fire)
     res = {m["id"]: m["res"] for m in done}
     for key, pk in store.items():
         if pk["status"] == "open" and key in res:
@@ -180,9 +190,9 @@ def nhl(out, hh, now):
                         continue
                     km = next((x for x in kp.get(kk, []) if x["line"] == 1), None)
                     ask = km and km.get("ask")
-                    if not ask or not 0 < ask < 1 or p - ask < 0.02:
+                    if not ask or not 0 < ask < 1 or net_edge(p, ask) < MIN_NET:
                         continue
-                    score = (p - ask) * 100 + p * 8 + form
+                    score = net_edge(p, ask) * 100 + p * 8 + form
                     if m["conf"] == "high" and m["pairG"] > 1.1 and mid == "goal":
                         score += 2
                     score += 1.5 if m["gf"] > 1.06 else -1.5 if m["gf"] < 0.94 else 0
@@ -191,11 +201,11 @@ def nhl(out, hh, now):
                 if best:
                     cands.append((s, *best))
             cands.sort(key=lambda c: -c[1])
-            chosen = cands[:1] + [c for c in cands[1:2] if c[4] - c[5] >= 0.03]
+            chosen = cands[:1] + [c for c in cands[1:2] if net_edge(c[4], c[5]) >= MIN_NET]
             for s, score, mid, label, p, ask in chosen:
                 add(store, f'{g["id"]}:{s["id"]}:{mid}', at=now.isoformat(timespec="minutes"), start=g.get("start") or g["date"],
                     game=f'{g["away"]} @ {g["home"]}', gid=g["id"], pid=s["id"], label=f'{s["name"]} {label}', market=mid,
-                    p=round(p, 4), ask=ask, edge=round(p - ask, 4))
+                    p=round(p, 4), ask=ask, edge=round(net_edge(p, ask), 4))
     # settle from game logs
     sk = {s["id"]: s for s in out["skaters"]}
     finished = {gg[8] for t in out["teams"] for gg in t["games"] if len(gg) > 8}
