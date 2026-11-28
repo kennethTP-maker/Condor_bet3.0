@@ -11,7 +11,7 @@ GitHub's own `schedule` often skips hours, so the Worker also has a cron trigger
 `nhl-dashboard.yml`:
 
 1. GitHub → Settings → Developer settings → Personal access tokens → **Fine-grained tokens** → Generate new token.
-   Repository access: **Only select repositories → Condor_bet3.0**. Permissions → Repository → **Actions: Read and write**.
+   Repository access: **Only select repositories → Condor_bet3.0**. Permissions → Repository → **Contents: Read and write** (the Worker sends a `repository_dispatch` event).
 2. Cloudflare → Workers → `radar-live` → Settings → Variables and Secrets → Add → type **Secret**,
    name `GH_TOKEN`, value = the token.
 3. Paste the new `worker.js` (Edit code → Deploy).
