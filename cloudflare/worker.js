@@ -25,19 +25,35 @@ function reply(text, status, origin) {
 
 var GH_DISPATCH = "https://api.github.com/repos/kennethTP-maker/Condor_bet3.0/actions/workflows/nhl-dashboard.yml/dispatches";
 
+// Ask GitHub to run the data workflow; keep the outcome in KV (STATUS) for troubleshooting.
+async function dispatch(env) {
+  var note = { at: new Date().toISOString(), status: 0, body: "" };
+  if (!env.GH_TOKEN) {
+    note.body = "GH_TOKEN missing";
+  } else {
+    try {
+      var r = await fetch(GH_DISPATCH, {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer " + String(env.GH_TOKEN).trim(),
+          "Accept": "application/vnd.github+json",
+          "User-Agent": "radar-live-cron",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ ref: "main" })
+      });
+      note.status = r.status;
+      note.body = (await r.text()).slice(0, 300);
+    } catch (e) {
+      note.body = "fetch error: " + String(e);
+    }
+  }
+  if (env.STATUS) await env.STATUS.put("last-cron", JSON.stringify(note));
+}
+
 export default {
   async scheduled(event, env, ctx) {
-    if (!env.GH_TOKEN) return;
-    ctx.waitUntil(fetch(GH_DISPATCH, {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + env.GH_TOKEN,
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "radar-live-cron",
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ ref: "main" })
-    }));
+    ctx.waitUntil(dispatch(env));
   },
 
   async fetch(request, env, ctx) {
